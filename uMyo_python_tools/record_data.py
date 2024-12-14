@@ -5,7 +5,7 @@ import serial
 import umyo_parser
 
 ser = serial.Serial(
-    port="COM7",
+    port="/dev/ttyUSB0",
     baudrate=921600,
     parity=serial.PARITY_NONE,
     stopbits=serial.STOPBITS_ONE,
@@ -40,14 +40,19 @@ if __name__ == "__main__":
                     continue
 
                 sensor_data = [[], [], [], []]
+                spectrum_data = [[], [], [], []]
                 for sensor_read in sensors_proc:
                     sensor_data[ids.index(sensor_read.unit_id)] = (
                         sensor_read.data_array[:8]
                     )
+                    spectrum_data[ids.index(sensor_read.unit_id)] = sensor_read.device_spectr
                 flattened_data = [item for sublist in sensor_data for item in sublist]
+                flattened_fft = [item for sublist in spectrum_data for item in sublist]
 
                 with open(args.output, "a") as f:
                     f.write(",".join(map(str, flattened_data)) + "\n")
+                with open("fft_" + args.output , "a") as f:
+                    f.write(",".join(map(str, flattened_fft)) + "\n")
                 recordings += 1
                 print("Recordings done: ", recordings)
         except KeyboardInterrupt:

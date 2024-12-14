@@ -28,8 +28,34 @@ class NeuralNet(nn.Module):
         x = torch.softmax(self.fc3(x), dim=1)
         return x
 
+class PureLSTM(nn.Module):
+    
+    def __init__(self, n_features, n_hidden, n_sequence, n_layers, n_classes):
+        super(PureLSTM, self).__init__()
+        self.n_features = n_features
+        self.n_hidden = n_hidden
+        self.n_sequence = n_sequence
+        self.n_layers = n_layers
+        self.n_classes = n_classes
+        self.lstm = nn.LSTM(input_size=n_features, hidden_size=n_hidden, num_layers=n_layers, batch_first=True)
+        self.linear_1 = nn.Linear(in_features=n_hidden, out_features=128)
+        self.dropout_1 = nn.Dropout(p=0.2)
+        self.linear_2 = nn.Linear(in_features=128, out_features=n_classes)        
+    
+    def forward(self, x):
+        self.hidden = (
+            torch.zeros(self.n_layers, x.shape[0], self.n_hidden),
+            torch.zeros(self.n_layers, x.shape[0], self.n_hidden)
+        )
+        out, (hs, cs) = self.lstm(x.view(len(x), self.n_sequence, -1),self.hidden)
+        out = out[:,-1,:]
+        out = self.linear_1(out)
+        out = self.dropout_1(out)
+        out = self.linear_2(out)
+        
+        return out
 
-lf = 50
+lf = 15
 hf = 400
 
 def preprocess_data(data):
@@ -37,7 +63,7 @@ def preprocess_data(data):
     return signal.sosfilt(sos, data)
 
 ser = serial.Serial(
-    port="COM7",
+    port="/dev/ttyUSB0",
     baudrate=921600,
     parity=serial.PARITY_NONE,
     stopbits=serial.STOPBITS_ONE,
@@ -53,14 +79,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Record data from uMyo")
     parser.add_argument(
         "--model_type",
-        choices=["sklearn", "torch"],
+        choices=["sklearn", "torch", "lstm"],
         default="sklearn",
         help="Type of model to use for classification",
     )
     parser.add_argument(
         "--model_path",
         type=str,
-        default="../pretraining/custom_classifier.pkl",
+        default="../pretraining/custom_classifier_gen2.pkl",
         help="Path to classifier",
     )
     parser.add_argument(
@@ -72,7 +98,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.model_type == "torch":
-        model = NeuralNet(32, 3)
+        model = NeuralNet(32, 7)
+        model.load_state_dict(torch.load(args.model_path))
+    elif args.model_type == "lstm":
+        model = PureLSTM(32, 64, 1, 2, 7)
         model.load_state_dict(torch.load(args.model_path))
     else:
         with open(args.model_path, "rb") as f:
@@ -102,7 +131,7 @@ if __name__ == "__main__":
                 flattened_data = [item for sublist in sensor_data for item in sublist]
                 
                 transformed_data = scaler.transform(preprocess_data([flattened_data]))
-                if args.model_type == "torch":
+                if args.model_type == "torch" or args.model_type == "lstm":
                     prediction = model(torch.tensor(transformed_data).float())
                     prediction = prediction.argmax(dim=1).numpy().item()
                 else:
