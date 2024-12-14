@@ -7,14 +7,14 @@ from numpy import mean, std
 from scipy import signal
 from scipy.signal import butter
 
-lf = 50
-hf = 400
+# OBSOLETE SCRIPT
 
+lf = 15 #50
+hf = 400
 
 def preprocess_data(data):
     sos = butter(3, (lf, hf), btype="bandpass", fs=1150, output="sos")
     return signal.sosfilt(sos, data)
-
 
 def remove_outliers1(data):
     data_mean, data_std = mean(data), std(data)
@@ -23,7 +23,6 @@ def remove_outliers1(data):
     outliers = [x for x in data if x < lower or x > upper]
     outliers_removed = [x for x in data if x >= lower and x <= upper]
     return outliers_removed
-
 
 def remove_outliers2(data):
     threshold_val = abs(data).max()
@@ -35,7 +34,6 @@ def remove_outliers2(data):
         ]
     )
     return data
-
 
 def plot_no_outliers(sensors_data, filename):
     fig, axs = plt.subplots(2, 2, figsize=(24, 16))
@@ -54,7 +52,7 @@ def plot_no_outliers(sensors_data, filename):
 
 parser = argparse.ArgumentParser(description="Visualize data from uMyo")
 parser.add_argument(
-    "--file", type=str, default="recordings/nad_neutral_0.csv", help="File to visualize"
+    "--file", type=str, default="teacher_fist_0.csv", help="File to visualize"
 )
 args = parser.parse_args()
 
