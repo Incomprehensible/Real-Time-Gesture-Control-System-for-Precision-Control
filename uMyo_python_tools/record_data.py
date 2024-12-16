@@ -1,4 +1,5 @@
 import argparse
+import pathlib
 from time import sleep
 
 import serial
@@ -13,7 +14,7 @@ ser = serial.Serial(
     timeout=0,
 )
 
-ids = [1633709441, 3274504362, 2749159433, 3048451580]
+ids = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Record data from uMyo")
@@ -23,8 +24,20 @@ if __name__ == "__main__":
         default="sensor_data.csv",
         help="Output file to save sensor data",
     )
+    parser.add_argument(
+        "--num_sensors",
+        type=int,
+        default=4,
+        help="Number of sensors to record",
+    )
     args = parser.parse_args()
+
+    output_path = pathlib.Path(args.output)
+    if output_path.parent.exists() is False:
+        output_path.parent.mkdir(parents=True)
+
     recordings = 0
+    last_data_ids = [0] * args.num_sensors
     while True:
         try:
             cnt = ser.in_waiting
@@ -34,25 +47,47 @@ if __name__ == "__main__":
                 sensors_proc = umyo_parser.umyo_get_list()
 
                 num_sensors = len(sensors_proc)
-                if num_sensors < 4:
+                if num_sensors < args.num_sensors:
                     print("Sensors found: ", str(num_sensors))
                     sleep(1)
                     continue
 
-                sensor_data = [[], [], [], []]
-                spectrum_data = [[], [], [], []]
+                sensor_data = [[] for _ in range(args.num_sensors)]
+                spectrum_data = [[] for _ in range(args.num_sensors)]
+                imu_data = [[] for _ in range(args.num_sensors)]
+                data_ids = [0] * args.num_sensors
                 for sensor_read in sensors_proc:
+                    data_ids[ids.index(sensor_read.unit_id)] = sensor_read.data_id
                     sensor_data[ids.index(sensor_read.unit_id)] = (
                         sensor_read.data_array[:8]
                     )
-                    spectrum_data[ids.index(sensor_read.unit_id)] = sensor_read.device_spectr
+                    spectrum_data[ids.index(sensor_read.unit_id)] = (
+                        sensor_read.device_spectr[:4]
+                    )
+                    imu_data[ids.index(sensor_read.unit_id)] = [
+                        sensor_read.yaw,
+                        sensor_read.pitch,
+                        sensor_read.roll,
+                        sensor_read.ax,
+                        sensor_read.ay,
+                        sensor_read.az,
+                        sensor_read.mag_angle,
+                    ]
+
+                if last_data_ids == data_ids:  # Skip if no new data
+                    continue
+                last_data_ids = data_ids
+
                 flattened_data = [item for sublist in sensor_data for item in sublist]
                 flattened_fft = [item for sublist in spectrum_data for item in sublist]
+                flattened_imu = [item for sublist in imu_data for item in sublist]
 
-                with open(args.output, "a") as f:
+                with open(output_path, "a") as f:
                     f.write(",".join(map(str, flattened_data)) + "\n")
-                with open("fft_" + args.output , "a") as f:
+                with open(output_path.parent / ("fft_" + output_path.name), "a") as f:
                     f.write(",".join(map(str, flattened_fft)) + "\n")
+                with open(output_path.parent / ("imu_" + output_path.name), "a") as f:
+                    f.write(",".join(map(str, flattened_imu)) + "\n")
                 recordings += 1
                 print("Recordings done: ", recordings)
         except KeyboardInterrupt:

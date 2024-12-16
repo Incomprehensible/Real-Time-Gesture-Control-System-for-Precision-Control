@@ -32,23 +32,31 @@ class PureLSTM(nn.Module):
     
     def __init__(self, n_features, n_hidden, n_sequence, n_layers, n_classes):
         super(PureLSTM, self).__init__()
+        
         self.n_features = n_features
         self.n_hidden = n_hidden
         self.n_sequence = n_sequence
         self.n_layers = n_layers
         self.n_classes = n_classes
+        
         self.lstm = nn.LSTM(input_size=n_features, hidden_size=n_hidden, num_layers=n_layers, batch_first=True)
+        
         self.linear_1 = nn.Linear(in_features=n_hidden, out_features=128)
         self.dropout_1 = nn.Dropout(p=0.2)
+        
         self.linear_2 = nn.Linear(in_features=128, out_features=n_classes)        
+        
     
     def forward(self, x):
+        
         self.hidden = (
             torch.zeros(self.n_layers, x.shape[0], self.n_hidden),
             torch.zeros(self.n_layers, x.shape[0], self.n_hidden)
         )
+    
         out, (hs, cs) = self.lstm(x.view(len(x), self.n_sequence, -1),self.hidden)
         out = out[:,-1,:]
+
         out = self.linear_1(out)
         out = self.dropout_1(out)
         out = self.linear_2(out)
@@ -101,7 +109,7 @@ if __name__ == "__main__":
         model = NeuralNet(32, 7)
         model.load_state_dict(torch.load(args.model_path))
     elif args.model_type == "lstm":
-        model = PureLSTM(32, 64, 1, 2, 7)
+        model = PureLSTM(32, 96, 1, 2, 7)
         model.load_state_dict(torch.load(args.model_path))
     else:
         with open(args.model_path, "rb") as f:
