@@ -8,17 +8,56 @@ from scipy.signal import butter
 from numpy import mean, std
 import os
 from scipy.fft import fft, fftfreq
+import neurokit2 as nk
+from sklearn.preprocessing import StandardScaler, RobustScaler
 
 # try: windowing (averaging or convolution), rms, envelope calculation, wavelets
 
 fs = 1150
-lf = 15
+lf = 20
 hf = 400
 trim = 4*8*5
 bandpass_order = 3
 outlier_rejection_stds = 6
 power_noise = 1.0
 power_noise_filtered = 1.0
+num_sensors = 4
+
+def test_nk2(gestures_files):
+    # emg = nk.emg_simulate(duration=10, sampling_rate=fs, burst_number=3)
+    # print(emg)
+    # print(emg.shape)
+    # signals, info = nk.emg_process(emg, sampling_rate=fs)
+    # nk.emg_plot(signals, info)
+    # plt.show()
+
+    gestures_data = [[] for _ in range(len(gestures_files))]
+    sensors = [[] for _ in range(num_sensors)]
+    for i, file in enumerate(gestures_files):
+        df = pd.read_csv(file, header=None)
+        df.drop_duplicates(inplace=True)
+        gestures_data[i].append(np.array(df.iloc[:, :8]).flatten().astype(np.float64))
+        gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten().astype(np.float64))
+        gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten().astype(np.float64))
+        gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten().astype(np.float64))
+
+        print(f'File: {file}')
+        for s in range(len(sensors)):
+            print(f'Sensor{s} data original:', gestures_data[i][s])
+            data = preprocess_data(gestures_data[i][s])
+            data = np.asarray(data)
+            # data = data - np.mean(data)
+            print(f'Sensor{s} data after preprocessing:', data)
+            scaler = RobustScaler() #StandardScaler()
+            gestures_data[i][s] = data.reshape(-1, 1)
+            gestures_data[i][s] = scaler.fit_transform(gestures_data[i][s])
+            gestures_data[i][s] = gestures_data[i][s].flatten()
+            print(f'Sensor{s} data after scaling:', gestures_data[i][s])
+            sensors[s] = nk.emg_process(gestures_data[i][s], sampling_rate=fs)
+            nk.emg_plot(sensors[s][0], sensors[s][1])
+            plt.show()
+            analyze_df = nk.emg_analyze(sensors[s][0], method="interval-related")
+            print(analyze_df)
 
 def show_fft(axs, data):
     N = len(data)
@@ -111,8 +150,7 @@ def show_bandpass():
         w, h = freqz(b, a, worN=2000)
         plt.plot((fs * 0.5 / np.pi) * w, abs(h), label="order = %d" % order)
 
-    plt.plot([0, 0.5 * fs], [np.sqrt(0.5), np.sqrt(0.5)],
-             '--', label='sqrt(0.5)')
+    plt.plot([0, 0.5 * fs], [np.sqrt(0.5), np.sqrt(0.5)], '--', label='sqrt(0.5)')
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Gain')
     plt.grid(True)
@@ -157,7 +195,7 @@ def show_ecg(gestures_files):
         plt.text(0.0, -0.3, f"SNR for sensor 1: {signaltonoise(gestures_data[i][0]):.2f} [dB]", 
                 horizontalalignment='left', verticalalignment='center', transform=axs[0].transAxes)
         plt.text(0.0, -0.3, f"SNR for sensor 2: {signaltonoise(gestures_data[i][1]):.2f} [dB]", 
-                 horizontalalignment='left', verticalalignment='center', transform=axs[1].transAxes)
+                horizontalalignment='left', verticalalignment='center', transform=axs[1].transAxes)
         plt.text(0.0, -0.3, f"SNR for sensor 3: {signaltonoise(gestures_data[i][2]):.2f} [dB]",
                 horizontalalignment='left', verticalalignment='center', transform=axs[2].transAxes)
         plt.text(0.0, -0.3, f"SNR for sensor 4: {signaltonoise(gestures_data[i][3]):.2f} [dB]",
@@ -303,7 +341,7 @@ def show_all_gestures(gestures_files, folder, subject, placement):
         plt.text(0.0, -0.3, f"SNR for sensor 1: {signaltonoise(gestures_data[i][0]):.2f} [dB]", 
                 horizontalalignment='left', verticalalignment='center', transform=axs[0].transAxes)
         plt.text(0.0, -0.3, f"SNR for sensor 2: {signaltonoise(gestures_data[i][1]):.2f} [dB]", 
-                 horizontalalignment='left', verticalalignment='center', transform=axs[1].transAxes)
+                horizontalalignment='left', verticalalignment='center', transform=axs[1].transAxes)
         plt.text(0.0, -0.3, f"SNR for sensor 3: {signaltonoise(gestures_data[i][2]):.2f} [dB]",
                 horizontalalignment='left', verticalalignment='center', transform=axs[2].transAxes)
         plt.text(0.0, -0.3, f"SNR for sensor 4: {signaltonoise(gestures_data[i][3]):.2f} [dB]",
@@ -415,5 +453,6 @@ if __name__ == "__main__":
     ]
 
     # show_gestures_fft(gestures_files, folder, subject, placement)
-    show_ecg(gestures_files)
+    # show_ecg(gestures_files)
+    test_nk2(gestures_files)
     # show_all_gestures(gestures_files, folder, subject, placement)
