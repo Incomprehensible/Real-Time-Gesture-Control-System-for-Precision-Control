@@ -1,74 +1,29 @@
 import argparse
+from collections import deque
 from pickle import load
+from threading import Lock, Thread
 from time import sleep
 
+import numpy as np
+import pandas as pd
 import serial
 import torch
-import torch.nn as nn
 import umyo_parser
-from scipy import signal
-from scipy.signal import butter
-
-
-# TODO: Save model architecture, classes and preprocessing parameters in pickle file
-class NeuralNet(nn.Module):
-    def __init__(self, input_size, output_size):
-        super(NeuralNet, self).__init__()
-        self.fc1 = nn.Linear(input_size, 1024)
-        self.dropout1 = nn.Dropout(0.2)
-        self.fc2 = nn.Linear(1024, 1024)
-        self.dropout2 = nn.Dropout(0.2)
-        self.fc3 = nn.Linear(1024, output_size)
-    
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = self.dropout1(x)
-        x = torch.relu(self.fc2(x))
-        x = self.dropout2(x)
-        x = torch.softmax(self.fc3(x), dim=1)
-        return x
-
-class PureLSTM(nn.Module):
-    
-    def __init__(self, n_features, n_hidden, n_sequence, n_layers, n_classes):
-        super(PureLSTM, self).__init__()
-        
-        self.n_features = n_features
-        self.n_hidden = n_hidden
-        self.n_sequence = n_sequence
-        self.n_layers = n_layers
-        self.n_classes = n_classes
-        
-        self.lstm = nn.LSTM(input_size=n_features, hidden_size=n_hidden, num_layers=n_layers, batch_first=True)
-        
-        self.linear_1 = nn.Linear(in_features=n_hidden, out_features=128)
-        self.dropout_1 = nn.Dropout(p=0.2)
-        
-        self.linear_2 = nn.Linear(in_features=128, out_features=n_classes)        
-        
-    
-    def forward(self, x):
-        
-        self.hidden = (
-            torch.zeros(self.n_layers, x.shape[0], self.n_hidden),
-            torch.zeros(self.n_layers, x.shape[0], self.n_hidden)
-        )
-    
-        out, (hs, cs) = self.lstm(x.view(len(x), self.n_sequence, -1),self.hidden)
-        out = out[:,-1,:]
-
-        out = self.linear_1(out)
-        out = self.dropout_1(out)
-        out = self.linear_2(out)
-        
-        return out
+from libemg.feature_extractor import FeatureExtractor
+from preprocessing import EMG_preprocessor
 
 lf = 15
 hf = 400
+num_classes = 6
+lf = 20
+hf = 500
+fs = 1150
+trim = 4 * 8 * 5
+bandpass_order = 4
+OUTLIER_REJECTION_STDS = 6
+PREDICTION_THRESHOLD = 0.0
 
-def preprocess_data(data):
-    sos = butter(3, (lf, hf), btype="bandpass", fs=1150, output="sos")
-    return signal.sosfilt(sos, data)
+NUM_SENSORS = 4
 
 ser = serial.Serial(
     port="/dev/ttyUSB0",
@@ -81,7 +36,37 @@ ser = serial.Serial(
 
 ids = [1633709441, 3274504362, 2749159433, 3048451580]
 
-classes = ["neutral", "fist", "index", "middle", "ok", "peace", "thumb"]
+classes = ["fist", "index", "middle", "ok", "peace", "thumb"]
+
+
+def data_collector(serial_port, data_queue, lock):
+    while True:
+        try:
+            cnt = serial_port.in_waiting
+            if cnt > 0:
+                data_raw = serial_port.read(cnt)
+                umyo_parser.umyo_parse_preprocessor(data_raw)
+                sensors_proc = umyo_parser.umyo_get_list()
+                
+                num_sensors = len(sensors_proc)
+                if num_sensors < NUM_SENSORS:
+                    print(f"Sensors found: {str(num_sensors)}")
+                    sleep(1)
+                    continue
+
+                sensor_data = np.zeros((num_sensors, 8), dtype=np.float32)
+                for sensor_read in sensors_proc:
+                    sensor_data[ids.index(sensor_read.unit_id)] = sensor_read.data_array[:8]
+                sensor_data = sensor_data.flatten()
+                sensor_data = np.hstack([sensor_data[i::8] for i in range(8)])
+                sensor_data = sensor_data.reshape(-1, NUM_SENSORS)
+                
+                with lock:
+                    data_queue.extend(list(sensor_data)) # Append all 8 rows individually
+
+        except Exception as e:
+            print(f"Data collection error: {e}")
+            sleep(1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Record data from uMyo")
@@ -103,50 +88,84 @@ if __name__ == "__main__":
         default="../pretraining/custom_scaler.pkl",
         help="Path to scaler",
     )
+    parser.add_argument("--baseline_path", type=str, default="../recordings/19_12_24/data/nad_baseline_0.csv", help="Path to baseline file")
+    parser.add_argument("--window_size", type=int, default=200, help="Size of the data window for predictions")
+    parser.add_argument("--prediction_interval", type=int, default=50, help="Number of readings before making a new prediction")
     args = parser.parse_args()
     
-    if args.model_type == "torch":
-        model = NeuralNet(32, 7)
-        model.load_state_dict(torch.load(args.model_path))
-    elif args.model_type == "lstm":
-        model = PureLSTM(32, 96, 1, 2, 7)
-        model.load_state_dict(torch.load(args.model_path))
-    else:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    if args.model_type in ["torch", "lstm"]:
+        model = torch.jit.load(args.model_path)
+        model.eval()
+        model.to(device)
+    elif args.model_type == "sklearn":
         with open(args.model_path, "rb") as f:
             model = load(f)
     with open(args.scaler_path, "rb") as f:
         scaler = load(f)
     
-    while True:
-        try:
-            cnt = ser.in_waiting
-            if cnt > 0:
-                data_raw = ser.read(cnt)
-                parse_unproc_cnt = umyo_parser.umyo_parse_preprocessor(data_raw)
-                sensors_proc = umyo_parser.umyo_get_list()
+    baseline_array = pd.read_csv(args.baseline_path, header=None).values
 
-                num_sensors = len(sensors_proc)
-                if num_sensors < 4:
-                    print("Sensors found: ", str(num_sensors))
-                    sleep(1)
-                    continue
+    preprocessor = EMG_preprocessor(lf, hf, fs, trim, bandpass_order, OUTLIER_REJECTION_STDS, baseline_array.flatten(), filter_type='band', library='libemg')
+    fe = FeatureExtractor()
+    
+    data_queue = deque([], maxlen=args.window_size)
+    lock = Lock()
+    
+    data_thread = Thread(target=data_collector, args=(ser, data_queue, lock), daemon=True)
+    data_thread.start()
+    
+    try:
+        while True:
+            with lock:
+                windowed_data = np.array(data_queue)
+            
+            if len(windowed_data) == args.window_size:
+                # Preprocess data by sensor
+                for i in range(NUM_SENSORS):
+                    windowed_data[:, i] = preprocessor.preprocess(windowed_data[:, i], i)
+                
+                windowed_data = np.expand_dims(windowed_data, axis=0) # Correct format for LSTM (batch, seq_len, num_sensors)
+                features = fe.extract_feature_group('HTD', windowed_data.swapaxes(1, 2), array=True)
+                
+                if args.model_type == "lstm":
+                    shape = windowed_data.shape
+                    data = scaler.transform(windowed_data.reshape(windowed_data.shape[0], -1))
+                    data = torch.tensor(data.reshape(*shape)).float().to(device)
+                    logits = model(data)
+                    
+                    shifted_logits = logits - logits.min(dim=1, keepdim=True).values
+                    normalized_logits = shifted_logits / (shifted_logits.sum(dim=1, keepdim=True) + 1e-8)
+                    
+                    if normalized_logits.max() > PREDICTION_THRESHOLD:
+                        prediction = normalized_logits.argmax(dim=1).cpu().numpy().item()
+                        print("Prediction: ", classes[prediction])
+                elif args.model_type == "torch":
+                    features = scaler.transform(features)
+                    
+                    print(features)
+                    
+                    data = torch.tensor(features).float().to(device)
+                    logits = model(data)
+                    
+                    #print("Logits: ", logits.cpu().detach().numpy().tolist())
+                    
+                    shifted_logits = logits - logits.min(dim=1, keepdim=True).values
+                    normalized_logits = shifted_logits / (shifted_logits.sum(dim=1, keepdim=True) + 1e-8)
+                    
+                    #print("Normalized logits: ", normalized_logits.cpu().detach().numpy().tolist())
+                    
+                    
+                    if normalized_logits.max() > PREDICTION_THRESHOLD:
+                        prediction = normalized_logits.argmax(dim=1).cpu().numpy().item()
+                        print("Prediction: ", classes[prediction])
+                    print()
+                elif args.model_type == "sklearn":
+                    features = scaler.transform(features)
+                    prediction = model.predict(features.squeeze()).unsqueeze(0)
+                    print("Prediction: ", classes[prediction])
+                sleep(0.5)
+    except KeyboardInterrupt:
+        print("Stopped classification session.")
 
-                sensor_data = [[], [], [], []]
-                for sensor_read in sensors_proc:
-                    sensor_data[ids.index(sensor_read.unit_id)] = (
-                        sensor_read.data_array[:8]
-                    )
-                flattened_data = [item for sublist in sensor_data for item in sublist]
-                
-                transformed_data = scaler.transform(preprocess_data([flattened_data]))
-                if args.model_type == "torch" or args.model_type == "lstm":
-                    prediction = model(torch.tensor(transformed_data).float())
-                    prediction = prediction.argmax(dim=1).numpy().item()
-                else:
-                    prediction = model.predict(transformed_data)[0]
-                
-                print("Prediction: ", classes[prediction])
-                sleep(0.5) # Only print predictions every 0.5 seconds
-        except KeyboardInterrupt:
-            print("Stopped classification session.")
-            break
