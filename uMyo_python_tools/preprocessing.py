@@ -1,5 +1,4 @@
 import libemg
-import neurokit2 as nk
 import numpy as np
 from numpy import mean, std
 from scipy import signal
@@ -21,7 +20,7 @@ class EMG_preprocessor():
         self.baseline_noise = [[0.0] for _ in range(num_sensors)]
         if baseline_signal is not None:
             self.baseline_signal = [[] for _ in range(num_sensors)]
-            baseline_signal = np.array_split(baseline_signal, num_sensors)
+            baseline_signal = np.array_split(baseline_signal, num_sensors, axis=1)
             for i in range(num_sensors):
                 self.baseline_signal[i] = np.asarray(baseline_signal[i]).flatten()
                 
@@ -39,8 +38,6 @@ class EMG_preprocessor():
     def preprocess(self, sensor_data, sensor_num):
         if self.library == 'scipy':
             return self._preprocess_data_scipy(sensor_data, sensor_num)
-        elif self.library == 'nk2':
-            return self._preprocess_data_nk2(sensor_data, sensor_num)
         elif self.library == 'libemg':
             return self._preprocess_data_libemg(sensor_data, sensor_num)
         else:
@@ -54,21 +51,6 @@ class EMG_preprocessor():
         # run the entire first subject dataset through the common filters
         raw_data = fi.filter(data)
         return raw_data
-
-    def _preprocess_data_nk2(self, data, sensor_num):
-        # raw_data = self._apply_filter(data)
-        # raw_data = self._remove_artefact(raw_data)
-        raw_data = data
-        # raw_data = self._subtract_baseline(raw_data, sensor_num)
-        raw_data = self._calculate_linear_envelop(raw_data, sensor_num, plot=False)
-        return raw_data
-
-    def _calculate_linear_envelop(self, data, sensor_num, plot=False):
-        feature='EMG_Amplitude'
-        signals, info = nk.emg_process(data, sampling_rate=self.fs)
-        if plot:
-            nk.emg_plot(signals, info)
-        return signals[feature].values
     
     # def _preprocess_data_emg_dsp_lib(self, data, sensor_num):
     #     ref_available = True if self.baseline_signal is not None else False
@@ -84,7 +66,8 @@ class EMG_preprocessor():
         data = self._remove_artefact(data)
         data = self._remove_outliers(data)
         data = self._remove_mean(data)
-        data = self._subtract_baseline(data, sensor_num)
+        if self.baseline_signal is not None:
+            data = self._subtract_baseline(data, sensor_num)
         return data
     
     def _preprocess_baseline_scipy(self, data):
@@ -144,4 +127,4 @@ class EMG_preprocessor():
         return snr
 
     def _subtract_baseline(self, data, sensor_num):
-        return data - self.baseline_signal[sensor_num][:len(data)]
+        return data - self.baseline_signal[sensor_num]

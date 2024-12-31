@@ -185,10 +185,10 @@ def show_ecg(gestures_files):
     for i, file in enumerate(gestures_files):
         df = pd.read_csv(file, header=None)
         
-        gestures_data[i].append(np.array(df.iloc[::8, :8]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::8, 8:16]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::8, 16:24]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::8, 24:]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten())
         gestures_data[i] = [data - np.mean(data) for data in gestures_data[i]]
         time1 = np.array([i/fs for i in range(0, len(gestures_data[i][0]), 1)])
         time2 = np.array([i/fs for i in range(0, len(gestures_data[i][1]), 1)])
@@ -264,13 +264,13 @@ def show_and_get_baseline(folder, subject, placement):
     global power_noise, power_noise_filtered, baseline
     file = os.path.join(folder, subject + "_baseline_" + str(placement) + ".csv")
     df = pd.read_csv(file, header=None)
-    sensor1 = np.array(df.iloc[::4, :8]).flatten() #* (1/fs)
+    sensor1 = np.array(df.iloc[:, :8]).flatten() #* (1/fs)
     sensor1 = sensor1 - np.mean(sensor1)
-    sensor2 = np.array(df.iloc[::4, 8:16]).flatten()
+    sensor2 = np.array(df.iloc[:, 8:16]).flatten()
     sensor2 = sensor2 - np.mean(sensor2)
-    sensor3 = np.array(df.iloc[::4, 16:24]).flatten()
+    sensor3 = np.array(df.iloc[:, 16:24]).flatten()
     sensor3 = sensor3 - np.mean(sensor3)
-    sensor4 = np.array(df.iloc[::4, 24:]).flatten()
+    sensor4 = np.array(df.iloc[:, 24:32]).flatten()
     sensor4 = sensor4 - np.mean(sensor4)
     time1 = np.array([i/fs for i in range(0, len(sensor1), 1)]) # sampling rate 1150 Hz
     time2 = np.array([i/fs for i in range(0, len(sensor2), 1)])
@@ -324,10 +324,10 @@ def show_all_gestures(gestures_files, folder, subject, placement):
         # gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
         # gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
         # gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, :8]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, 8:16]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, 16:24]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, 24:]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 24:32]).flatten())
         gestures_data[i] = [data - np.mean(data) for data in gestures_data[i]]
         time1 = np.array([i/fs for i in range(0, len(gestures_data[i][0]), 1)])
         time2 = np.array([i/fs for i in range(0, len(gestures_data[i][1]), 1)])
@@ -359,18 +359,18 @@ def show_all_gestures(gestures_files, folder, subject, placement):
         sensor3 = preprocess_data2(preprocess_data(gestures_data[i][2]))
         sensor4 = preprocess_data2(preprocess_data(gestures_data[i][3]))
 
-        b1 = baseline[0]
-        b1 = np.append(b1, np.zeros(len(sensor1)-len(b1)))
-        sensor1 -= b1
-        b2 = baseline[1]
-        b2 = np.append(b2, np.zeros(len(sensor2)-len(b2)))
-        sensor2 -= b2
-        b3 = baseline[2]
-        b3 = np.append(b3, np.zeros(len(sensor3)-len(b3)))
-        sensor3 -= b3
-        b4 = baseline[3]
-        b4 = np.append(b4, np.zeros(len(sensor4)-len(b4)))
-        sensor4 -= b4
+        # b1 = baseline[0]
+        # b1 = np.append(b1, np.zeros(len(sensor1)-len(b1)))
+        # sensor1 -= b1
+        # b2 = baseline[1]
+        # b2 = np.append(b2, np.zeros(len(sensor2)-len(b2)))
+        # sensor2 -= b2
+        # b3 = baseline[2]
+        # b3 = np.append(b3, np.zeros(len(sensor3)-len(b3)))
+        # sensor3 -= b3
+        # b4 = baseline[3]
+        # b4 = np.append(b4, np.zeros(len(sensor4)-len(b4)))
+        # sensor4 -= b4
 
         axs[4].set_title("Filtered sensor 1")
         axs[4].plot(time1, sensor1)
@@ -401,10 +401,10 @@ def show_gestures_fft(gesture_files):
 
     for i, file in enumerate(gesture_files):
         df = pd.read_csv(file, header=None)
-        gestures_data[i].append(np.array(df.iloc[::4, :8]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, 8:16]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, 16:24]).flatten())
-        gestures_data[i].append(np.array(df.iloc[::4, 24:]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten())
         gestures_data[i] = [data - np.mean(data) for data in gestures_data[i]]
         title = 'Filtered'
         sensor1 = preprocess_data(gestures_data[i][0])

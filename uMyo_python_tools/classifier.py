@@ -12,9 +12,6 @@ import umyo_parser
 from libemg.feature_extractor import FeatureExtractor
 from preprocessing import EMG_preprocessor
 
-lf = 15
-hf = 400
-num_classes = 6
 lf = 20
 hf = 500
 fs = 1150
@@ -26,7 +23,7 @@ PREDICTION_THRESHOLD = 0.0
 NUM_SENSORS = 4
 
 ser = serial.Serial(
-    port="/dev/ttyUSB0",
+    port="COM7",
     baudrate=921600,
     parity=serial.PARITY_NONE,
     stopbits=serial.STOPBITS_ONE,
@@ -34,9 +31,23 @@ ser = serial.Serial(
     timeout=0,
 )
 
-ids = [1633709441, 3274504362, 2749159433, 3048451580]
+ids = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
 
-classes = ["fist", "index", "middle", "ok", "peace", "thumb"]
+classes = ["fist", "index", "middle", "ok", "peace", "thumb", "baseline"]
+
+
+def get_features_per_sensor(windows, feature_groups=('HTD',)):
+    fe = FeatureExtractor()
+    
+    features_list = []
+    
+    for feature_group in feature_groups:
+        if feature_group not in fe.get_feature_groups().keys():
+            raise ValueError(f"Invalid feature group: {feature_group}")
+
+        features = fe.extract_feature_group(feature_group, windows, array=True)
+        features_list.append(features)
+    return np.concatenate(features_list, axis=1)
 
 
 def data_collector(serial_port, data_queue, lock):
@@ -107,7 +118,7 @@ if __name__ == "__main__":
     
     baseline_array = pd.read_csv(args.baseline_path, header=None).values
 
-    preprocessor = EMG_preprocessor(lf, hf, fs, trim, bandpass_order, OUTLIER_REJECTION_STDS, baseline_array.flatten(), filter_type='band', library='libemg')
+    preprocessor = EMG_preprocessor(lf, hf, fs, trim, bandpass_order, OUTLIER_REJECTION_STDS, np.zeros(baseline_array.flatten().shape), filter_type='band', library='libemg')
     fe = FeatureExtractor()
     
     data_queue = deque([], maxlen=args.window_size)
@@ -127,7 +138,7 @@ if __name__ == "__main__":
                     windowed_data[:, i] = preprocessor.preprocess(windowed_data[:, i], i)
                 
                 windowed_data = np.expand_dims(windowed_data, axis=0) # Correct format for LSTM (batch, seq_len, num_sensors)
-                features = fe.extract_feature_group('HTD', windowed_data.swapaxes(1, 2), array=True)
+                features = get_features_per_sensor(windowed_data.swapaxes(1, 2), feature_groups=('HJORTH', 'HTD'))
                 
                 if args.model_type == "lstm":
                     shape = windowed_data.shape
@@ -144,7 +155,7 @@ if __name__ == "__main__":
                 elif args.model_type == "torch":
                     features = scaler.transform(features)
                     
-                    print(features)
+                    #print(features)
                     
                     data = torch.tensor(features).float().to(device)
                     logits = model(data)
@@ -160,10 +171,10 @@ if __name__ == "__main__":
                     if normalized_logits.max() > PREDICTION_THRESHOLD:
                         prediction = normalized_logits.argmax(dim=1).cpu().numpy().item()
                         print("Prediction: ", classes[prediction])
-                    print()
+                    #print()
                 elif args.model_type == "sklearn":
                     features = scaler.transform(features)
-                    prediction = model.predict(features.squeeze()).unsqueeze(0)
+                    prediction = int(model.predict(features).squeeze())
                     print("Prediction: ", classes[prediction])
                 sleep(0.5)
     except KeyboardInterrupt:
