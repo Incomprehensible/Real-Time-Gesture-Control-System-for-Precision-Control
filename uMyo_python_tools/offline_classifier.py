@@ -23,6 +23,10 @@ outlier_rejection_stds = 6
 NUM_SENSORS = 4
 NUM_READINGS = 8
 
+def check_sensors_present(file, num_sensors=NUM_SENSORS):
+    df = pd.read_csv(file)
+    return len(df.columns) >= num_sensors * NUM_READINGS
+
 def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
     recordings = []
     baseline_file = None
@@ -32,19 +36,19 @@ def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
     # pattern = re.compile(rf"({'|'.join(TEST_SUBJECTS)})_({'|'.join(GESTURES)})1_{SENSOR_PLACEMENT}.csv")
 
     for date_dir, _, filenames in os.walk(data_dir):
-        if date_dir.endswith('data'):
+        if date_dir.endswith('data') and not 'static' in date_dir:
             for filename in filenames:
                 if pattern.match(filename):
                     gesture = next((gesture for gesture in gestures if gesture in filename), None)
                     
-                    # TODO: Add check if the file has the desired number of sensors recorded
-                    
-                    recordings.append({
-                        "gesture": gesture,
-                        "raw_data_filepath": os.path.join(date_dir, filename),
-                        "imu_data_filepath": os.path.join(date_dir, f'imu_{filename}') if os.path.exists(os.path.join(date_dir, f'imu_{filename}')) else None,
-                        'fft_data_filepath': os.path.join(date_dir, f'fft_{filename}') if os.path.exists(os.path.join(date_dir, f'fft_{filename}')) else None,
-                    })
+                    emg_data_file = os.path.join(date_dir, filename)
+                    if check_sensors_present(emg_data_file):
+                        recordings.append({
+                            "gesture": gesture,
+                            "raw_data_filepath": emg_data_file,
+                            "imu_data_filepath": os.path.join(date_dir, f'imu_{filename}') if os.path.exists(os.path.join(date_dir, f'imu_{filename}')) else None,
+                            'fft_data_filepath': os.path.join(date_dir, f'fft_{filename}') if os.path.exists(os.path.join(date_dir, f'fft_{filename}')) else None,
+                        })
     
     dfs = [[] for _ in range(len(gestures))]
 
@@ -118,7 +122,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Offline classification of EMG data")
     parser.add_argument(
         "--model_type",
-        choices=["sklearn", "torch", "lstm"],
+        choices=["sklearn", "torch", "lstm", "tf"],
         default="sklearn",
         help="Type of model to use for classification",
     )
@@ -137,13 +141,13 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--data_dir', type=str, default="../recordings/31_12_24_5", help="Directory containing data files")
     parser.add_argument('-s', '--subject', type=str, default="gilbert", help="Subject to use for classification")
     parser.add_argument('-g','--gestures', nargs='+', default=["fist", "index", "middle", "ok", "peace", "thumb", "baseline"] ,help='Set of gestures')
-    parser.add_argument("--window_size", type=int, default=200, help="Size of the data window for predictions")
+    parser.add_argument("--window_size", type=int, default=400, help="Size of the data window for predictions")
     parser.add_argument("--prediction_interval", type=int, default=50, help="Number of readings before making a new prediction")
     args = parser.parse_args()
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    if args.model_type in ["torch", "lstm"]:
+    if args.model_type in ["torch", "lstm", "tf"]:
         model = torch.jit.load(args.model_path)
         model.eval()
         model.to(device)
@@ -158,8 +162,17 @@ if __name__ == "__main__":
     X_feat = scaler.transform(X_feat)
     
     try:
-        if args.model_type == "torch":
+        if args.model_type == "torch" or args.model_type == 'tf':
             
+            if args.model_type == "tf":
+                n_features = NUM_SENSORS
+                n_sequence = int(X_feat.shape[1] / n_features)
+                n_hidden = 16
+                n_layers = 2
+
+                X_feat = X_feat.reshape(X_feat.shape[0], n_features, n_sequence)
+                X_feat = np.swapaxes(X_feat, 2, 1)
+
             X_feat_tensor = torch.tensor(X_feat, dtype=torch.float32).to(device)
             y_feat_tensor = torch.tensor(y_feat, dtype=torch.long).to(device)
 
