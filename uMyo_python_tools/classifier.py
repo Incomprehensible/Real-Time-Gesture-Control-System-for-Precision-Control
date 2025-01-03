@@ -20,20 +20,11 @@ bandpass_order = 4
 OUTLIER_REJECTION_STDS = 6
 PREDICTION_THRESHOLD = 0.0
 
-NUM_SENSORS = 4
-
-ser = serial.Serial(
-    port="COM7",
-    baudrate=921600,
-    parity=serial.PARITY_NONE,
-    stopbits=serial.STOPBITS_ONE,
-    bytesize=serial.EIGHTBITS,
-    timeout=0,
-)
+NUM_SENSORS = 5
+NUM_FFT_READINGS = 4
+USE_FFT = True
 
 ids = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
-
-classes = ["fist", "index", "middle", "ok", "peace", "thumb", "baseline"]
 
 
 def get_features_per_sensor(windows, feature_groups=('HTD',)):
@@ -50,7 +41,8 @@ def get_features_per_sensor(windows, feature_groups=('HTD',)):
     return np.concatenate(features_list, axis=1)
 
 
-def data_collector(serial_port, data_queue, lock):
+def data_collector(serial_port, raw_data_queue, fft_data_queue, lock):
+    last_data_ids = [0] * NUM_SENSORS
     while True:
         try:
             cnt = serial_port.in_waiting
@@ -65,25 +57,68 @@ def data_collector(serial_port, data_queue, lock):
                     sleep(1)
                     continue
 
-                sensor_data = np.zeros((num_sensors, 8), dtype=np.float32)
+                raw_data = np.zeros((NUM_SENSORS, 8), dtype=np.float32)
+                fft_data = np.zeros((NUM_SENSORS, 3), dtype=np.float32)
+                data_ids = [0] * NUM_SENSORS
                 for sensor_read in sensors_proc:
-                    sensor_data[ids.index(sensor_read.unit_id)] = sensor_read.data_array[:8]
-                sensor_data = sensor_data.flatten()
-                sensor_data = np.hstack([sensor_data[i::8] for i in range(8)])
-                sensor_data = sensor_data.reshape(-1, NUM_SENSORS)
+                    raw_data[ids.index(sensor_read.unit_id)] = sensor_read.data_array[:8]
+                    fft_data[ids.index(sensor_read.unit_id)] = sensor_read.device_spectr[1:4]
+                    data_ids[ids.index(sensor_read.unit_id)] = sensor_read.data_id
+                
+                if last_data_ids == data_ids:  # Skip if no new data
+                    continue
+                last_data_ids = data_ids
+                
+                raw_data = raw_data.mean(axis=1)
+                raw_data = raw_data.flatten()
                 
                 with lock:
-                    data_queue.extend(list(sensor_data)) # Append all 8 rows individually
+                    raw_data_queue.append(list(raw_data)) # Append averaged data
+                    fft_data_queue.append(list(fft_data)) # Append averaged FFT data
 
         except Exception as e:
             print(f"Data collection error: {e}")
             sleep(1)
 
+
+def classification(windowed_data, fft_data, model, scaler, preprocessor, model_type="sklearn"):
+    # Preprocess data by sensor
+    for i in range(NUM_SENSORS):
+        windowed_data[:, i] = preprocessor.preprocess(windowed_data[:, i], i)
+    
+    windowed_data = np.expand_dims(windowed_data, axis=0) # Correct format for LSTM (batch, seq_len, num_sensors)
+    features = get_features_per_sensor(windowed_data.swapaxes(1, 2), feature_groups=('HJORTH', 'HTD'))
+    
+    if USE_FFT:
+        fft_data = np.concatenate([np.min(fft_data, axis=0), np.max(fft_data, axis=0)], axis=1)
+        fft_data = fft_data.reshape(1, -1)
+        features = np.hstack([features, fft_data])
+    
+    if model_type == "lstm":
+        shape = windowed_data.shape
+        data = scaler.transform(windowed_data.reshape(windowed_data.shape[0], -1))
+        data = torch.tensor(data.reshape(*shape)).float().to(device)
+        prediction = model(data).argmax(dim=1).numpy().item()
+    elif model_type == "torch" or model_type == "tf":
+        features = scaler.transform(features)
+        if args.model_type == "tf":
+            n_features = NUM_SENSORS
+            n_sequence = int(features.shape[1] / n_features)
+
+            features = features.reshape(features.shape[0], n_features, n_sequence)
+            features = np.swapaxes(features, 2, 1)
+        data = torch.tensor(features, dtype=torch.float32).to(device)
+        prediction = model(data).argmax(dim=1).numpy().item()
+    elif model_type == "sklearn":
+        features = scaler.transform(features)
+        prediction = int(model.predict(features).squeeze())
+    return prediction
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Record data from uMyo")
+    parser = argparse.ArgumentParser(description="Real-time classification of EMG data")
     parser.add_argument(
         "--model_type",
-        choices=["sklearn", "torch", "lstm"],
+        choices=["sklearn", "torch", "lstm", "tf"],
         default="sklearn",
         help="Type of model to use for classification",
     )
@@ -99,14 +134,23 @@ if __name__ == "__main__":
         default="../pretraining/custom_scaler.pkl",
         help="Path to scaler",
     )
-    parser.add_argument("--baseline_path", type=str, default="../recordings/19_12_24/data/nad_baseline_0.csv", help="Path to baseline file")
+    parser.add_argument('-g','--gestures', nargs='+', default=("baseline", "fist", "peace", "up", "down", "lift") ,help='Set of gestures') 
     parser.add_argument("--window_size", type=int, default=200, help="Size of the data window for predictions")
-    parser.add_argument("--prediction_interval", type=int, default=50, help="Number of readings before making a new prediction")
+    parser.add_argument("--prediction_delay", type=int, default=1, help="Delay between predictions")
     args = parser.parse_args()
     
+    ser = serial.Serial(
+        port="COM7",
+        baudrate=921600,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE,
+        bytesize=serial.EIGHTBITS,
+        timeout=0,
+    )
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    if args.model_type in ["torch", "lstm"]:
+    if args.model_type in ["torch", "lstm", "tf"]:
         model = torch.jit.load(args.model_path)
         model.eval()
         model.to(device)
@@ -116,67 +160,25 @@ if __name__ == "__main__":
     with open(args.scaler_path, "rb") as f:
         scaler = load(f)
     
-    baseline_array = pd.read_csv(args.baseline_path, header=None).values
-
-    preprocessor = EMG_preprocessor(lf, hf, fs, trim, bandpass_order, OUTLIER_REJECTION_STDS, np.zeros(baseline_array.flatten().shape), filter_type='band', library='libemg')
-    fe = FeatureExtractor()
+    preprocessor = EMG_preprocessor(lf, hf, fs, trim, bandpass_order, OUTLIER_REJECTION_STDS, None, filter_type='band', library='libemg')
     
-    data_queue = deque([], maxlen=args.window_size)
+    raw_data_queue = deque([], maxlen=args.window_size)
+    fft_data_queue = deque([], maxlen=args.window_size)
     lock = Lock()
     
-    data_thread = Thread(target=data_collector, args=(ser, data_queue, lock), daemon=True)
+    data_thread = Thread(target=data_collector, args=(ser, raw_data_queue, fft_data_queue, lock), daemon=True)
     data_thread.start()
     
     try:
         while True:
             with lock:
-                windowed_data = np.array(data_queue)
+                windowed_data = np.array(raw_data_queue)
+                fft_data = np.array(fft_data_queue)
             
             if len(windowed_data) == args.window_size:
-                # Preprocess data by sensor
-                for i in range(NUM_SENSORS):
-                    windowed_data[:, i] = preprocessor.preprocess(windowed_data[:, i], i)
-                
-                windowed_data = np.expand_dims(windowed_data, axis=0) # Correct format for LSTM (batch, seq_len, num_sensors)
-                features = get_features_per_sensor(windowed_data.swapaxes(1, 2), feature_groups=('HJORTH', 'HTD'))
-                
-                if args.model_type == "lstm":
-                    shape = windowed_data.shape
-                    data = scaler.transform(windowed_data.reshape(windowed_data.shape[0], -1))
-                    data = torch.tensor(data.reshape(*shape)).float().to(device)
-                    logits = model(data)
-                    
-                    shifted_logits = logits - logits.min(dim=1, keepdim=True).values
-                    normalized_logits = shifted_logits / (shifted_logits.sum(dim=1, keepdim=True) + 1e-8)
-                    
-                    if normalized_logits.max() > PREDICTION_THRESHOLD:
-                        prediction = normalized_logits.argmax(dim=1).cpu().numpy().item()
-                        print("Prediction: ", classes[prediction])
-                elif args.model_type == "torch":
-                    features = scaler.transform(features)
-                    
-                    #print(features)
-                    
-                    data = torch.tensor(features).float().to(device)
-                    logits = model(data)
-                    
-                    #print("Logits: ", logits.cpu().detach().numpy().tolist())
-                    
-                    shifted_logits = logits - logits.min(dim=1, keepdim=True).values
-                    normalized_logits = shifted_logits / (shifted_logits.sum(dim=1, keepdim=True) + 1e-8)
-                    
-                    #print("Normalized logits: ", normalized_logits.cpu().detach().numpy().tolist())
-                    
-                    
-                    if normalized_logits.max() > PREDICTION_THRESHOLD:
-                        prediction = normalized_logits.argmax(dim=1).cpu().numpy().item()
-                        print("Prediction: ", classes[prediction])
-                    #print()
-                elif args.model_type == "sklearn":
-                    features = scaler.transform(features)
-                    prediction = int(model.predict(features).squeeze())
-                    print("Prediction: ", classes[prediction])
-                sleep(0.5)
+                prediction = classification(windowed_data, fft_data, model, scaler, preprocessor, args.model_type)
+                print("Prediction: ", args.gestures[prediction])
+            sleep(args.prediction_delay)
     except KeyboardInterrupt:
         print("Stopped classification session.")
 

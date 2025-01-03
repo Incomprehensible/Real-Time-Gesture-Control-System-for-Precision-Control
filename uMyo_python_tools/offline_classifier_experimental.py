@@ -1,10 +1,7 @@
 import argparse
 import os
 import re
-from collections import deque
 from pickle import load
-from threading import Lock, Thread
-from time import sleep
 
 import numpy as np
 import pandas as pd
@@ -20,7 +17,7 @@ trim = 4 * 8 * 5
 bandpass_order = 4
 outlier_rejection_stds = 6
 
-NUM_SENSORS = 4
+NUM_SENSORS = 5
 NUM_READINGS = 8
 NUM_FFT_READINGS = 4
 
@@ -30,10 +27,8 @@ def check_sensors_present(file, num_sensors=NUM_SENSORS):
     df = pd.read_csv(file)
     return len(df.columns) >= num_sensors * NUM_READINGS
 
-def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
+def load_data(data_dir, test_subjects, gestures, window_size, sensor_placement=0):
     recordings = []
-    baseline_file = None
-    NUM_CLASSES = len(gestures)
 
     pattern = re.compile(rf"({'|'.join(test_subjects)})_({'|'.join(gestures)})\d*_{sensor_placement}.csv")
     # pattern = re.compile(rf"({'|'.join(TEST_SUBJECTS)})_({'|'.join(GESTURES)})1_{SENSOR_PLACEMENT}.csv")
@@ -85,7 +80,7 @@ def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
     windows = [[] for _ in range(len(gestures))]
     data_arrays = [[] for _ in range(len(gestures))]
     for i, df in enumerate(concat_dfs):
-        data_arrays[i], windows[i] = preprocess_per_sensor_avg(df, preprocessor, i, num_sensors=NUM_SENSORS, window_size=400, window_increment=50)
+        data_arrays[i], windows[i] = preprocess_per_sensor_avg(df, preprocessor, i, num_sensors=NUM_SENSORS, window_size=window_size, window_increment=(window_size // 5) + (window_size // 5 % 2))
 
     features = [[] for _ in range(len(gestures))]
     for i in range(len(gestures)):
@@ -95,7 +90,7 @@ def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
         fft_data_arrays = [[] for _ in range(len(gestures))]
         fft_windows = [[] for _ in range(len(gestures))]
         for i, df in enumerate(concat_fft_dfs):
-            fft_data_arrays[i], fft_windows[i] = preprocess_per_sensor_fft(df, i, num_sensors=NUM_SENSORS, window_size=400, window_increment=50, num_readings=NUM_FFT_READINGS)
+            fft_data_arrays[i], fft_windows[i] = preprocess_per_sensor_fft(df, i, num_sensors=NUM_SENSORS, window_size=window_size, window_increment=(window_size // 5) + (window_size // 5 % 2), num_readings=NUM_FFT_READINGS)
 
         fft_features = [[] for _ in range(len(gestures))]
         for i in range(len(gestures)):
@@ -216,7 +211,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('-d', '--data_dir', type=str, default="../recordings/31_12_24_5", help="Directory containing data files")
     parser.add_argument('-s', '--subject', type=str, default="gilbert", help="Subject to use for classification")
-    parser.add_argument('-g','--gestures', nargs='+', default=["fist", "index", "middle", "ok", "peace", "thumb", "baseline"] ,help='Set of gestures')
+    parser.add_argument('-g','--gestures', nargs='+', default=("fist", "index", "ok", "peace", "thumb", "up", "down") ,help='Set of gestures')
     parser.add_argument("--window_size", type=int, default=400, help="Size of the data window for predictions")
     parser.add_argument("--prediction_interval", type=int, default=50, help="Number of readings before making a new prediction")
     args = parser.parse_args()
@@ -233,7 +228,7 @@ if __name__ == "__main__":
     with open(args.scaler_path, "rb") as f:
         scaler = load(f)
     
-    X_feat, y_feat = load_data(args.data_dir, [args.subject], args.gestures)
+    X_feat, y_feat = load_data(args.data_dir, [args.subject], args.gestures, args.window_size)
     
     X_feat = scaler.transform(X_feat)
     
@@ -243,8 +238,6 @@ if __name__ == "__main__":
             if args.model_type == "tf":
                 n_features = NUM_SENSORS
                 n_sequence = int(X_feat.shape[1] / n_features)
-                n_hidden = 16
-                n_layers = 2
 
                 X_feat = X_feat.reshape(X_feat.shape[0], n_features, n_sequence)
                 X_feat = np.swapaxes(X_feat, 2, 1)

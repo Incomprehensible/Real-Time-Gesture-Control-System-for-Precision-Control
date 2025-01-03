@@ -6,7 +6,7 @@ import serial
 import umyo_parser
 
 ser = serial.Serial(
-    port="/dev/ttyUSB0",
+    port="COM7",
     baudrate=921600,
     parity=serial.PARITY_NONE,
     stopbits=serial.STOPBITS_ONE,

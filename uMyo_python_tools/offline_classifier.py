@@ -30,7 +30,7 @@ def check_sensors_present(file, num_sensors=NUM_SENSORS):
     df = pd.read_csv(file)
     return len(df.columns) >= num_sensors * NUM_READINGS
 
-def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
+def load_data(data_dir, test_subjects, gestures, window_size, sensor_placement=0):
     recordings = []
     baseline_file = None
     NUM_CLASSES = len(gestures)
@@ -85,7 +85,7 @@ def load_data(data_dir, test_subjects, gestures, sensor_placement=0):
     windows = [[] for _ in range(len(gestures))]
     data_arrays = [[] for _ in range(len(gestures))]
     for i, df in enumerate(concat_dfs):
-        data_arrays[i], windows[i] = preprocess_per_sensor_avg(df, preprocessor, i, num_sensors=NUM_SENSORS, window_size=400, window_increment=50)
+        data_arrays[i], windows[i] = preprocess_per_sensor(df, preprocessor, i, num_sensors=NUM_SENSORS, window_size=window_size, window_increment=50)
 
     features = [[] for _ in range(len(gestures))]
     for i in range(len(gestures)):
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('-d', '--data_dir', type=str, default="../recordings/31_12_24_5", help="Directory containing data files")
     parser.add_argument('-s', '--subject', type=str, default="gilbert", help="Subject to use for classification")
-    parser.add_argument('-g','--gestures', nargs='+', default=["fist", "index", "middle", "ok", "peace", "thumb", "baseline"] ,help='Set of gestures')
+    parser.add_argument('-g','--gestures', nargs='+', default=("fist", "index", "ok", "peace", "thumb", "up", "down") ,help='Set of gestures')
     parser.add_argument("--window_size", type=int, default=400, help="Size of the data window for predictions")
     parser.add_argument("--prediction_interval", type=int, default=50, help="Number of readings before making a new prediction")
     args = parser.parse_args()
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     with open(args.scaler_path, "rb") as f:
         scaler = load(f)
     
-    X_feat, y_feat = load_data(args.data_dir, [args.subject], args.gestures)
+    X_feat, y_feat = load_data(args.data_dir, [args.subject], args.gestures, args.window_size)
     
     X_feat = scaler.transform(X_feat)
     
