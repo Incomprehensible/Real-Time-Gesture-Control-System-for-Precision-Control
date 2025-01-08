@@ -82,6 +82,7 @@ def data_collector(serial_port, raw_data_queue, fft_data_queue, lock):
 
 
 def classification(windowed_data, fft_data, model, scaler, preprocessor, model_type="sklearn"):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Preprocess data by sensor
     for i in range(NUM_SENSORS):
         windowed_data[:, i] = preprocessor.preprocess(windowed_data[:, i], i)
@@ -101,7 +102,7 @@ def classification(windowed_data, fft_data, model, scaler, preprocessor, model_t
         prediction = model(data).argmax(dim=1).numpy().item()
     elif model_type == "torch" or model_type == "tf":
         features = scaler.transform(features)
-        if args.model_type == "tf":
+        if model_type == "tf":
             n_features = NUM_SENSORS
             n_sequence = int(features.shape[1] / n_features)
 
