@@ -126,22 +126,24 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_path",
         type=str,
-        default="../pretraining/custom_classifier_gen2.pkl",
+        default="../training/resources/custom_classifier_gen2.pkl",
         help="Path to classifier",
     )
     parser.add_argument(
         "--scaler_path",
         type=str,
-        default="../pretraining/custom_scaler.pkl",
+        default="../training/resources/custom_scaler.pkl",
         help="Path to scaler",
     )
     parser.add_argument('-g','--gestures', nargs='+', default=("baseline", "fist", "peace", "up", "down", "lift") ,help='Set of gestures') 
     parser.add_argument("--window_size", type=int, default=200, help="Size of the data window for predictions")
     parser.add_argument("--prediction_delay", type=int, default=1, help="Delay between predictions")
+    parser.add_argument("-p", "--port", type=str, default="COM7", help="USB receiving station port")
+
     args = parser.parse_args()
     
     ser = serial.Serial(
-        port="COM7",
+        port=args.port,
         baudrate=921600,
         parity=serial.PARITY_NONE,
         stopbits=serial.STOPBITS_ONE,
@@ -152,7 +154,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     if args.model_type in ["torch", "lstm", "tf"]:
-        model = torch.jit.load(args.model_path)
+        model = torch.jit.load(args.model_path, map_location=torch.device(device))
         model.eval()
         model.to(device)
     elif args.model_type == "sklearn":

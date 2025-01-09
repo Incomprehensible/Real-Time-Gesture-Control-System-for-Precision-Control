@@ -1,23 +1,28 @@
 
+import argparse
 import threading
 import time
 
 import serial
 import umyo_parser
 
-ser = serial.Serial(
-    port="COM7",
-    baudrate=921600,
-    parity=serial.PARITY_NONE,
-    stopbits=serial.STOPBITS_ONE,
-    bytesize=serial.EIGHTBITS,
-    timeout=0,
-)
-
 IDS = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
 PRINT_DELAY = 2 # seconds
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="EMG sensors data rate test")
+    parser.add_argument("-p", "--port", type=str, default="COM7", help="USB receiving station port")
+    args = parser.parse_args()
+
+    ser = serial.Serial(
+        port=args.port,
+        baudrate=921600,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE,
+        bytesize=serial.EIGHTBITS,
+        timeout=0,
+    )
+
     recordings = 0
     last_data_ids = {}
     new_value_per_sensor_counts = {}

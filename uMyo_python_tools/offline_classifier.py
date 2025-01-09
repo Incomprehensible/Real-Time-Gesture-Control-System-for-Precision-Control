@@ -224,7 +224,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     if args.model_type in ["torch", "lstm", "tf"]:
-        model = torch.jit.load(args.model_path)
+        model = torch.jit.load(args.model_path, map_location=torch.device(device))
         model.eval()
         model.to(device)
     elif args.model_type == "sklearn":
