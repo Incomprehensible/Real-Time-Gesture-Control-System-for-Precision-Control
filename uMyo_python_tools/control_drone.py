@@ -141,9 +141,7 @@ if __name__ == '__main__':
         while True:
             master.wait_heartbeat(timeout=0.1) # Do heartbeat to keep connection alive (probably)
             prediction = inference.classification()
-            
-            print(get_current_altitude())
-            
+
             if prediction is not None:
                 gesture = gestures[prediction]
                 predictions.append(gesture)

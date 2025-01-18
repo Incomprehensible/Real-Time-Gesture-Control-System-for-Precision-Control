@@ -6,6 +6,7 @@ import serial
 import umyo_parser
 
 ids = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
+MAX_DATA_LAG = 400
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Record data from uMyo")
@@ -39,6 +40,8 @@ if __name__ == "__main__":
 
     recordings = 0
     last_data_ids = [0] * args.num_sensors
+    data_lag = [0] * args.num_sensors
+
     while True:
         try:
             cnt = ser.in_waiting
@@ -77,6 +80,12 @@ if __name__ == "__main__":
 
                 if last_data_ids == data_ids:  # Skip if no new data
                     continue
+                data_lag = [data_lag[i] + 1 if data_ids[i] == last_data_ids[i] else 0 for i in range(args.num_sensors)]
+                if any([lag > MAX_DATA_LAG for lag in data_lag]):
+                    print('Data ids: ', data_ids)
+                    print('sensors down: ', [i for i in range(args.num_sensors) if data_lag[i] > MAX_DATA_LAG])
+                    print("Data lag too high, some sensors probably died, skipping recording.")
+                    exit(1)
                 last_data_ids = data_ids
 
                 flattened_data = [item for sublist in sensor_data for item in sublist]
