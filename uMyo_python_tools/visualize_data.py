@@ -8,10 +8,8 @@ from scipy.signal import butter
 from numpy import mean, std
 import os
 from scipy.fft import fft, fftfreq
-import neurokit2 as nk
-from sklearn.preprocessing import StandardScaler, RobustScaler
 
-# try: windowing (averaging or convolution), rms, envelope calculation, wavelets
+# Helper script to visualize unfiltered/filtered raw EMG signal from 4 sensors
 
 fs = 1150
 lf = 20
@@ -23,42 +21,6 @@ power_noise = 1.0
 power_noise_filtered = 1.0
 num_sensors = 4
 
-def test_nk2(gestures_files):
-    # emg = nk.emg_simulate(duration=10, sampling_rate=fs, burst_number=3)
-    # print(emg)
-    # print(emg.shape)
-    # signals, info = nk.emg_process(emg, sampling_rate=fs)
-    # nk.emg_plot(signals, info)
-    # plt.show()
-
-    gestures_data = [[] for _ in range(len(gestures_files))]
-    sensors = [[] for _ in range(num_sensors)]
-    for i, file in enumerate(gestures_files):
-        df = pd.read_csv(file, header=None)
-        df.drop_duplicates(inplace=True)
-        gestures_data[i].append(np.array(df.iloc[:, :8]).flatten().astype(np.float64))
-        gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten().astype(np.float64))
-        gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten().astype(np.float64))
-        gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten().astype(np.float64))
-
-        print(f'File: {file}')
-        for s in range(len(sensors)):
-            print(f'Sensor{s} data original:', gestures_data[i][s])
-            data = preprocess_data(gestures_data[i][s])
-            data = np.asarray(data)
-            # data = data - np.mean(data)
-            print(f'Sensor{s} data after preprocessing:', data)
-            scaler = RobustScaler() #StandardScaler()
-            gestures_data[i][s] = data.reshape(-1, 1)
-            gestures_data[i][s] = scaler.fit_transform(gestures_data[i][s])
-            gestures_data[i][s] = gestures_data[i][s].flatten()
-            print(f'Sensor{s} data after scaling:', gestures_data[i][s])
-            sensors[s] = nk.emg_process(gestures_data[i][s], sampling_rate=fs)
-            nk.emg_plot(sensors[s][0], sensors[s][1])
-            plt.show()
-            analyze_df = nk.emg_analyze(sensors[s][0], method="interval-related")
-            print(analyze_df)
-
 def show_fft(axs, data):
     N = len(data)
     T = 1.0 / fs
@@ -66,7 +28,6 @@ def show_fft(axs, data):
     xf = fftfreq(N, T)[:N//2]
     axs.plot(xf, 2.0/N * np.abs(yf[0:N//2]))
     plt.grid()
-    # plt.show()
 
 def _remove_outliers(data):
     data_mean, data_std = mean(data), std(data)
@@ -123,8 +84,6 @@ def _butter_bandpass(lowcut, highcut, fs, order=3):
     low = lowcut / nyq
     high = highcut / nyq
     sos = butter(order, [low, high], analog=False, btype='bandpass', output='sos')
-    # b, a = butter(order, [low, high], btype='bandpass', fs=fs)
-    # return b, a
     return sos
 
 def _apply_bandpass(data, lowcut, highcut, fs, order=5):
@@ -136,7 +95,6 @@ def _apply_bandpass(data, lowcut, highcut, fs, order=5):
 def _calculate_baseline_noise(neutral_signal):
     return np.sqrt(np.sum(np.asanyarray(neutral_signal)**2)) / len(neutral_signal)
 
-# def signaltonoise(a, axis=0, ddof=0, filtered=False):
 def signaltonoise(signal, filtered=False):
     global power_noise, power_noise_filtered
 
@@ -147,11 +105,6 @@ def signaltonoise(signal, filtered=False):
     power_signal = np.sqrt(np.sum(np.asanyarray(signal)**2)) / len(signal)
     snr = 10 * np.log10(power_signal / power_noise_)
     return snr
-
-    # a = np.asanyarray(a)
-    # m = a.mean(axis)
-    # sd = a.std(axis=axis, ddof=ddof)
-    # return np.where(sd == 0, 0, m/sd)
 
 from scipy.signal import freqz
 
@@ -172,13 +125,12 @@ def show_bandpass():
 
 def _preprocess_ecg_data(data):
     data = _apply_bandpass(data, lowcut=0.00001, highcut=10, fs=fs, order=bandpass_order)
-    # sos = butter(bandpass_order, (lf, hf), btype="bandpass", fs=fs, output="sos")
-    # data = signal.sosfilt(sos, data)
     data = _apply_notch_filter(data)
     data = _remove_artefact(data)
     data = _remove_outliers(data)
     return data
 
+# extracts ECG signal from the data and visualizes it for fun
 def show_ecg(gestures_files):
     gestures_data = [[] for _ in range(len(gestures_files))]
 
@@ -188,7 +140,7 @@ def show_ecg(gestures_files):
         gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
-        gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 24:32]).flatten())
         gestures_data[i] = [data - np.mean(data) for data in gestures_data[i]]
         time1 = np.array([i/fs for i in range(0, len(gestures_data[i][0]), 1)])
         time2 = np.array([i/fs for i in range(0, len(gestures_data[i][1]), 1)])
@@ -242,19 +194,8 @@ def show_ecg(gestures_files):
         plt.subplots_adjust(hspace=0.5)
         plt.show()
 
-def preprocess_data2(data):
-    data = _apply_bandstop(data, lowcut=20, highcut=50, fs=fs, order=1)
-    data = _remove_artefact(data)
-    # data = _remove_outliers(data)
-    data = _apply_bandstop(data, lowcut=100, highcut=120, fs=fs, order=1)
-    data = _remove_artefact(data)
-
-    return data
-
 def preprocess_data(data):
     data = _apply_bandpass(data, lf, hf, fs, order=bandpass_order)
-    # sos = butter(bandpass_order, (lf, hf), btype="bandpass", fs=fs, output="sos")
-    # data = signal.sosfilt(sos, data)
     # data = _apply_notch_filter(data)
     data = _remove_artefact(data)
     data = _remove_outliers(data)
@@ -292,10 +233,10 @@ def show_and_get_baseline(folder, subject, placement):
     axs[3].set_title("Sensor 4")
     axs[3].plot(time4, sensor4)
 
-    sensor1 = preprocess_data2(preprocess_data(sensor1))
-    sensor2 = preprocess_data2(preprocess_data(sensor2))
-    sensor3 = preprocess_data2(preprocess_data(sensor3))
-    sensor4 = preprocess_data2(preprocess_data(sensor4))
+    sensor1 = preprocess_data(sensor1)
+    sensor2 = preprocess_data(sensor2)
+    sensor3 = preprocess_data(sensor3)
+    sensor4 = preprocess_data(sensor4)
 
     if power_noise_filtered == 1.0:
         power_noise_filtered = _calculate_baseline_noise(np.concatenate([sensor1, sensor2, sensor3, sensor4]))
@@ -320,10 +261,6 @@ def show_all_gestures(gestures_files, folder, subject, placement):
         if 'baseline' in file:
             continue
         df = pd.read_csv(file, header=None)
-        # gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
-        # gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
-        # gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
-        # gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
@@ -354,23 +291,23 @@ def show_all_gestures(gestures_files, folder, subject, placement):
         plt.text(0.0, -0.3, f"SNR for sensor 4: {signaltonoise(gestures_data[i][3]):.2f} [dB]",
                 horizontalalignment='left', verticalalignment='center', transform=axs[3].transAxes)
     
-        sensor1 = preprocess_data2(preprocess_data(gestures_data[i][0]))
-        sensor2 = preprocess_data2(preprocess_data(gestures_data[i][1]))
-        sensor3 = preprocess_data2(preprocess_data(gestures_data[i][2]))
-        sensor4 = preprocess_data2(preprocess_data(gestures_data[i][3]))
+        sensor1 = preprocess_data(gestures_data[i][0])
+        sensor2 = preprocess_data(gestures_data[i][1])
+        sensor3 = preprocess_data(gestures_data[i][2])
+        sensor4 = preprocess_data(gestures_data[i][3])
 
-        # b1 = baseline[0]
-        # b1 = np.append(b1, np.zeros(len(sensor1)-len(b1)))
-        # sensor1 -= b1
-        # b2 = baseline[1]
-        # b2 = np.append(b2, np.zeros(len(sensor2)-len(b2)))
-        # sensor2 -= b2
-        # b3 = baseline[2]
-        # b3 = np.append(b3, np.zeros(len(sensor3)-len(b3)))
-        # sensor3 -= b3
-        # b4 = baseline[3]
-        # b4 = np.append(b4, np.zeros(len(sensor4)-len(b4)))
-        # sensor4 -= b4
+        b1 = baseline[0]
+        b1 = np.append(b1, np.zeros(len(sensor1)-len(b1)))
+        sensor1 -= b1
+        b2 = baseline[1]
+        b2 = np.append(b2, np.zeros(len(sensor2)-len(b2)))
+        sensor2 -= b2
+        b3 = baseline[2]
+        b3 = np.append(b3, np.zeros(len(sensor3)-len(b3)))
+        sensor3 -= b3
+        b4 = baseline[3]
+        b4 = np.append(b4, np.zeros(len(sensor4)-len(b4)))
+        sensor4 -= b4
 
         axs[4].set_title("Filtered sensor 1")
         axs[4].plot(time1, sensor1)
@@ -404,7 +341,7 @@ def show_gestures_fft(gesture_files):
         gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
         gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
-        gestures_data[i].append(np.array(df.iloc[:, 24:]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 24:32]).flatten())
         gestures_data[i] = [data - np.mean(data) for data in gestures_data[i]]
         title = 'Filtered'
         sensor1 = preprocess_data(gestures_data[i][0])
@@ -436,6 +373,51 @@ def show_gestures_fft(gesture_files):
         plt.subplots_adjust(hspace=0.5)
         plt.show()
 
+def show_psd(gesture_files):
+    import matplotlib.mlab as mlab
+
+    title = ''
+    gestures_data = [[] for _ in range(len(gesture_files))]
+
+    for i, file in enumerate(gesture_files):
+        df = pd.read_csv(file, header=None)
+        gestures_data[i].append(np.array(df.iloc[:, :8]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 8:16]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 16:24]).flatten())
+        gestures_data[i].append(np.array(df.iloc[:, 24:32]).flatten())
+        gestures_data[i] = [data - np.mean(data) for data in gestures_data[i]]
+        title = 'Filtered'
+        sensor1 = preprocess_data(gestures_data[i][0])
+        sensor2 = preprocess_data(gestures_data[i][1])
+        sensor3 = preprocess_data(gestures_data[i][2])
+        sensor4 = preprocess_data(gestures_data[i][3])
+        
+        fig, axs = plt.subplots(4, 2, figsize=(16, 16))
+        axs = axs.flatten()
+        axs[0].set_title("Sensor 1 " + title)
+        axs[0].plot(sensor1)
+        axs[1].set_title("Sensor 2 " + title)
+        axs[1].plot(sensor2)
+        axs[2].set_title("Sensor 3 " + title)
+        axs[2].plot(sensor3)
+        axs[3].set_title("Sensor 4 " + title)
+        axs[3].plot(sensor4)
+
+        nfft = 512
+        to_scale = False
+        axs[4].set_title("Sensor 1 PSD")
+        axs[4].psd(sensor1, NFFT = nfft, Fs = fs, window = mlab.window_none, scale_by_freq = to_scale)
+        axs[5].set_title("Sensor 2 PSD")
+        axs[5].psd(sensor2, NFFT = nfft, Fs = fs, window = mlab.window_none, scale_by_freq = to_scale)
+        axs[6].set_title("Sensor 3 PSD")
+        axs[6].psd(sensor3, NFFT = nfft, Fs = fs, window = mlab.window_none, scale_by_freq = to_scale)
+        axs[7].set_title("Sensor 4 PSD")
+        axs[7].psd(sensor4, NFFT = nfft, Fs = fs, window = mlab.window_none, scale_by_freq = to_scale)
+
+        fig.suptitle(file)
+        plt.subplots_adjust(hspace=0.5)
+        plt.show()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize data from uMyo")
     
@@ -458,7 +440,4 @@ if __name__ == "__main__":
         os.path.join(folder, file) for file in os.listdir(folder) if file.endswith(str(placement)+".csv") and file.startswith(subject)
     ]
 
-    # show_gestures_fft(gestures_files)
-    # show_ecg(gestures_files)
-    # test_nk2(gestures_files)
     show_all_gestures(gestures_files, folder, subject, placement)
