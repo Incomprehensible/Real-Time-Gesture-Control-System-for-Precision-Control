@@ -1,10 +1,7 @@
 import argparse
 import os
 import re
-from collections import deque
 from pickle import load
-from threading import Lock, Thread
-from time import sleep
 
 import numpy as np
 import pandas as pd
@@ -20,7 +17,7 @@ trim = 4 * 8 * 5
 bandpass_order = 4
 outlier_rejection_stds = 6
 
-NUM_SENSORS = 4
+NUM_SENSORS = 5
 NUM_READINGS = 8
 NUM_FFT_READINGS = 4
 
@@ -32,11 +29,8 @@ def check_sensors_present(file, num_sensors=NUM_SENSORS):
 
 def load_data(data_dir, test_subjects, gestures, window_size, sensor_placement=0):
     recordings = []
-    baseline_file = None
-    NUM_CLASSES = len(gestures)
 
     pattern = re.compile(rf"({'|'.join(test_subjects)})_({'|'.join(gestures)})\d*_{sensor_placement}.csv")
-    # pattern = re.compile(rf"({'|'.join(TEST_SUBJECTS)})_({'|'.join(GESTURES)})1_{SENSOR_PLACEMENT}.csv")
 
     for date_dir, _, filenames in os.walk(data_dir):
         if date_dir.endswith('data') and not 'static' in date_dir:
@@ -85,7 +79,7 @@ def load_data(data_dir, test_subjects, gestures, window_size, sensor_placement=0
     windows = [[] for _ in range(len(gestures))]
     data_arrays = [[] for _ in range(len(gestures))]
     for i, df in enumerate(concat_dfs):
-        data_arrays[i], windows[i] = preprocess_per_sensor(df, preprocessor, i, num_sensors=NUM_SENSORS, window_size=window_size, window_increment=50)
+        data_arrays[i], windows[i] = preprocess_per_sensor_avg(df, preprocessor, i, num_sensors=NUM_SENSORS, window_size=window_size, window_increment=(window_size // 5) + (window_size // 5 % 2))
 
     features = [[] for _ in range(len(gestures))]
     for i in range(len(gestures)):
@@ -95,7 +89,7 @@ def load_data(data_dir, test_subjects, gestures, window_size, sensor_placement=0
         fft_data_arrays = [[] for _ in range(len(gestures))]
         fft_windows = [[] for _ in range(len(gestures))]
         for i, df in enumerate(concat_fft_dfs):
-            fft_data_arrays[i], fft_windows[i] = preprocess_per_sensor_fft(df, i, num_sensors=NUM_SENSORS, window_size=400, window_increment=50, num_readings=NUM_FFT_READINGS)
+            fft_data_arrays[i], fft_windows[i] = preprocess_per_sensor_fft(df, i, num_sensors=NUM_SENSORS, window_size=window_size, window_increment=(window_size // 5) + (window_size // 5 % 2), num_readings=NUM_FFT_READINGS)
 
         fft_features = [[] for _ in range(len(gestures))]
         for i in range(len(gestures)):
@@ -224,7 +218,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     if args.model_type in ["torch", "lstm", "tf"]:
-        model = torch.jit.load(args.model_path, map_location=torch.device(device))
+        model = torch.jit.load(args.model_path)
         model.eval()
         model.to(device)
     elif args.model_type == "sklearn":
@@ -243,8 +237,6 @@ if __name__ == "__main__":
             if args.model_type == "tf":
                 n_features = NUM_SENSORS
                 n_sequence = int(X_feat.shape[1] / n_features)
-                n_hidden = 16
-                n_layers = 2
 
                 X_feat = X_feat.reshape(X_feat.shape[0], n_features, n_sequence)
                 X_feat = np.swapaxes(X_feat, 2, 1)
