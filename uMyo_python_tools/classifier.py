@@ -5,29 +5,15 @@ from threading import Lock, Thread
 from time import sleep
 
 import numpy as np
-import pandas as pd
 import serial
 import torch
 import umyo_parser
 from libemg.feature_extractor import FeatureExtractor
+from parameters import IDS
 from preprocessing import EMG_preprocessor
 
 
 class EMG_Inference:
-    lf = 20
-    hf = 500
-    fs = 1150
-    trim = 4 * 8 * 5
-    bandpass_order = 4
-    OUTLIER_REJECTION_STDS = 6
-    PREDICTION_THRESHOLD = 0.0
-
-    NUM_SENSORS = 5
-    NUM_FFT_READINGS = 4
-    USE_FFT = True
-
-    ids = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
-
     def __init__(
         self,
         port="/dev/ttyUSB0",
@@ -97,15 +83,13 @@ class EMG_Inference:
                     fft_data = np.zeros((self.NUM_SENSORS, 3), dtype=np.float32)
                     data_ids = [0] * self.NUM_SENSORS
                     for sensor_read in sensors_proc:
-                        raw_data[self.ids.index(sensor_read.unit_id)] = (
+                        raw_data[IDS.index(sensor_read.unit_id)] = (
                             sensor_read.data_array[:8]
                         )
-                        fft_data[self.ids.index(sensor_read.unit_id)] = (
+                        fft_data[IDS.index(sensor_read.unit_id)] = (
                             sensor_read.device_spectr[1:4]
                         )
-                        data_ids[self.ids.index(sensor_read.unit_id)] = (
-                            sensor_read.data_id
-                        )
+                        data_ids[IDS.index(sensor_read.unit_id)] = sensor_read.data_id
 
                     if last_data_ids == data_ids:  # Skip if no new data
                         continue
@@ -125,9 +109,6 @@ class EMG_Inference:
                 sleep(1)
 
     def classification(self):
-        
-        # Preprocess data by sensor
-
         with self.lock:
             windowed_data = np.array(self.raw_data_queue)
             fft_data = np.array(self.fft_data_queue)
@@ -171,7 +152,7 @@ class EMG_Inference:
                 features = features.reshape(features.shape[0], n_features, n_sequence)
                 features = np.swapaxes(features, 2, 1)
             data = torch.tensor(features, dtype=torch.float32).to(self.device)
-            prediction = self.model(data).argmax(dim=1).to('cpu').numpy().item()
+            prediction = self.model(data).argmax(dim=1).to("cpu").numpy().item()
         elif self.model_type == "sklearn":
             features = self.scaler.transform(features)
             prediction = int(self.model.predict(features).squeeze())
@@ -179,9 +160,7 @@ class EMG_Inference:
 
     def _load_model(self):
         if self.model_type in ["torch", "lstm", "tf"]:
-            self.model = torch.jit.load(
-                self.model_path, map_location=self.device
-            )
+            self.model = torch.jit.load(self.model_path, map_location=self.device)
             self.model.eval()
             self.model.to(self.device)
         elif self.model_type == "sklearn":
@@ -190,17 +169,7 @@ class EMG_Inference:
         with open(self.scaler_path, "rb") as f:
             self.scaler = load(f)
 
-        self.preprocessor = EMG_preprocessor(
-            self.lf,
-            self.hf,
-            self.fs,
-            self.trim,
-            self.bandpass_order,
-            self.OUTLIER_REJECTION_STDS,
-            None,
-            filter_type="band",
-            library="libemg",
-        )
+        self.preprocessor = EMG_preprocessor()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,13 @@
 import libemg
 import numpy as np
 from numpy import mean, std
+from parameters import BANDPASS_ORDER, FS, HF, LF, OUTLIER_REJECTION_STDS, TRIM
 from scipy import signal
 from scipy.signal import butter
 
 
 class EMG_preprocessor():
-    def __init__(self, lf, hf, fs, trim, filter_order, outlier_rejection_stds, baseline_signal=None, filter_type='band', library='scipy', num_sensors=4):
+    def __init__(self, lf=LF, hf=HF, fs=FS, trim=TRIM, filter_order=BANDPASS_ORDER, outlier_rejection_stds=OUTLIER_REJECTION_STDS, baseline_signal=None, filter_type='band', library='libemg', num_sensors=5):
         self.lf = lf
         self.hf = hf
         self.fs = fs

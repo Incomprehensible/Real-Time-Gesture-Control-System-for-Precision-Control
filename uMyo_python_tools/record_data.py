@@ -5,7 +5,8 @@ from time import sleep
 import serial
 import umyo_parser
 
-ids = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357]
+from parameters import IDS
+
 MAX_DATA_LAG = 400
 
 if __name__ == "__main__":
@@ -61,14 +62,14 @@ if __name__ == "__main__":
                 imu_data = [[] for _ in range(args.num_sensors)]
                 data_ids = [0] * args.num_sensors
                 for sensor_read in sensors_proc:
-                    data_ids[ids.index(sensor_read.unit_id)] = sensor_read.data_id
-                    sensor_data[ids.index(sensor_read.unit_id)] = (
+                    data_ids[IDS.index(sensor_read.unit_id)] = sensor_read.data_id
+                    sensor_data[IDS.index(sensor_read.unit_id)] = (
                         sensor_read.data_array[:8]
                     )
-                    spectrum_data[ids.index(sensor_read.unit_id)] = (
+                    spectrum_data[IDS.index(sensor_read.unit_id)] = (
                         sensor_read.device_spectr[:4]
                     )
-                    imu_data[ids.index(sensor_read.unit_id)] = [
+                    imu_data[IDS.index(sensor_read.unit_id)] = [
                         sensor_read.yaw,
                         sensor_read.pitch,
                         sensor_read.roll,

@@ -1,9 +1,7 @@
 libemg
 matplotlib
-neurokit2
 numpy
 pandas
-pygame
 pyserial
 scikit_learn
 scipy
