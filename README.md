@@ -6,15 +6,20 @@ The project was implemented as part of the Pervasive Computing Lab course (24W) 
 
 ## Table of Contents
 
-- [Setup](#setup)
-- [Sensor placement](#sensor-placement)
-- [Data collection](#data-collection)
-- [Training](#training)
-- [Inference](#inference)
-  - [Classifier](#classifier)
-  - [Drone control simulation](#drone-control-simulation)
-  - [Drone control real life](#drone-control-real-life)
-- [Project members](#project-members)
+- [Real Time Gesture Control System for Precision Control](#real-time-gesture-control-system-for-precision-control)
+  - [Table of Contents](#table-of-contents)
+  - [Setup](#setup)
+  - [Sensor placement](#sensor-placement)
+  - [Parameters](#parameters)
+  - [Dataset preparation](#dataset-preparation)
+  - [Data collection](#data-collection)
+  - [Training](#training)
+  - [Inference](#inference)
+    - [Classifier](#classifier)
+    - [Download models from Hugginface](#download-models-from-hugginface)
+    - [Drone control simulation](#drone-control-simulation)
+    - [Drone control real life](#drone-control-real-life)
+  - [Project members](#project-members)
 
 ## Setup
 
@@ -34,11 +39,41 @@ For the project we used five uMyo sensors. Four of them were placed on the forea
 
 ![Sensor placement](doc/sensor_placement.jpg)
 
-By default uMyo data arrives in the order the sensors are started. To keep the order consistent without having to relie on the order the sensors are started, we saved the ids of each sensors and associate the data based on the `unit_id`. These `IDS` need to be replace in the [uMyo_python_tools/parameters.py file](uMyo_python_tools\parameters.py).
+By default uMyo data arrives in the order the sensors are started. To keep the order consistent without having to relie on the order the sensors are started, we saved the ids of each sensors and associate the data based on the `unit_id`. These `IDS` need to be replaced in the project-wide parameters configuration file.
+
+## Parameters
+We define project-wide parameters in the [`parameters.py` file](uMyo_python_tools/parameters.py). The parameters are:
+```python
+IDS = [1633709441, 3274504362, 2749159433, 3048451580, 3899692357] # Replace with your sensor ids
+
+LF = 20 # lower frequency bound for bandpass Butterworth filter
+HF = 500 # higher frequency bound for Low-Pass Butterworth filter
+FS = 1150 # sampling frequency
+TRIM = 4 * 8 * 5 # window for trimming away the post-filtering artefacts
+BANDPASS_ORDER = 4 # order of the bandpass filter
+OUTLIER_REJECTION_STDS = 6 # number of standard deviations to reject outliers
+
+NUM_SENSORS = 5 # number of sensors
+NUM_FFT_READINGS = 4 # number of FFT readings
+USE_FFT = True # use FFT readings for the model training and inference
+
+class DATASET(Enum):
+    HUGGING_FACE = 1
+    LOCAL = 2
+    BOTH = 3
+
+GESTURES_TYPE = ("dynamic_gestures", "static_gestures") # gesture set types
+GESTURES = ("baseline", "fist", "peace", "up", "down", "lift") # gesture set
+
+DATASET_SOURCE = DATASET.HUGGING_FACE # dataset source
+```
+
+## Dataset preparation
+Dataset can be specified in the parameters config by setting the `DATASET_SOURCE` parameter. The dataset can be either downloaded from [Huggingface](https://huggingface.co/datasets/MadNad/Real-Time-Gesture-Control-System-for-Precision-Control) or created locally. In case of a local dataset, the path to the dataset needs to be specified in the [`gesture-recognition.ipynb` script](training/scripts/gesture-recognition.ipynb).
 
 ## Data collection
 
-Data collection can be done using the [`record_data.py` script](uMyo_python_tools\record_data.py). The script will receive the data from the [uMyo USB receiver base](https://udevices.io/products/usb-receiver-base) and saves it to a file.
+Data collection can be done using the [`record_data.py` script](uMyo_python_tools/record_data.py). The script will receive the data from the [uMyo USB receiver base](https://udevices.io/products/usb-receiver-base) and saves it to a file.
 
 Usage:
 ```bash
@@ -65,7 +100,7 @@ python uMyo_python_tools/record_data.py --num_sensors 5 --output_folder recordin
 
 ## Training
 
-Data exploration and training is done in the [gesture-recognition notebook](training/scripts/gesture-recognition.ipynb). It imports the preprocessing code from [preprocessing.py](uMyo_python_tools\preprocessing.py) to be consistent with the inference code and allows you to train a random forest (RF), feed-forward neural network (FFNN), LSTM, and transformer model.
+Data exploration and training is done in the [gesture-recognition notebook](training/scripts/gesture-recognition.ipynb). It imports the preprocessing code from [`preprocessing.py`](uMyo_python_tools/preprocessing.py) to be consistent with the inference code and allows you to train a random forest (RF), feed-forward neural network (FFNN), LSTM, and transformer model.
 
 After thorough testing, we found that feature extraction produces better real-time performance than using raw data. For feature extraction we're using [libEMG](https://github.com/LibEMG/libemg). Concretely we're using [Hjorth parameters](https://libemg.github.io/libemg/documentation/features/features.html#hjorth-parameters-hjorth-sup-17-sup) and [HTD](https://libemg.github.io/libemg/documentation/features/features.html#hudgin-s-time-domain-htd-sup-8-sup) which are time-domain based features.
 
@@ -73,7 +108,7 @@ After thorough testing, we found that feature extraction produces better real-ti
 
 ### Classifier
 
-The base script for running inference is [classifier.py](uMyo_python_tools\classifier.py) which loads the trained model, collects data in a separate thread, and classifies the data in real-time.
+The base script for running inference is [`classifier.py`](uMyo_python_tools/classifier.py) which loads the trained model, collects data in a separate thread, and classifies the data in real-time.
 
 Usage:
 ```bash
@@ -101,7 +136,15 @@ options:
 
 Example:
 ```bash
-python uMyo_python_tools/classifier.py --model_type tf --model_path training/resources/transformer_model.pt --scaler_path training\resources\scaler_features.pkl --window_size 100
+python uMyo_python_tools/classifier.py --model_type tf --model_path training/resources/transformer_model.pt --scaler_path training/resources/scaler_features.pkl --window_size 100
+```
+
+### Download models from Hugginface
+
+Our models are available through [Hugginface](https://huggingface.co/GilbertT/Real-Time-Gesture-Control-System-for-Precision-Control) and can be download via:
+
+```bash
+huggingface-cli download GilbertT/Real-Time-Gesture-Control-System-for-Precision-Control --local-dir training/resources
 ```
 
 ### Drone control simulation
@@ -111,7 +154,7 @@ The simulation demo uses Ardupilot SITL and Gazebo Harmonic.
 Prerequisites:
 - [Using SITL with Gazebo](https://ardupilot.org/dev/docs/sitl-with-gazebo.html)
 
-The [control_drone.py file](uMyo_python_tools\control_drone.py) uses the `EMG_Inference` class from the [classifier.py](uMyo_python_tools/classifier.py) to get the gesture predictions and then controls the drone via [pymavlink](https://github.com/ArduPilot/pymavlink).
+The [`control_drone.py` file](uMyo_python_tools/control_drone.py) uses the `EMG_Inference` class from the [`classifier.py`](uMyo_python_tools/classifier.py) to get the gesture predictions and then controls the drone via [pymavlink](https://github.com/ArduPilot/pymavlink).
 
 Control:
 - Fist: Arming
