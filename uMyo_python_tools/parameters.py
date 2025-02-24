@@ -16,6 +16,7 @@ USE_FFT = True
 class DATASET(Enum):
     HUGGING_FACE = 1
     LOCAL = 2
+    BOTH = 3
 
 GESTURES_TYPE = ("dynamic_gestures", "static_gestures")
 GESTURES = ("baseline", "fist", "peace", "up", "down", "lift")

@@ -196,9 +196,9 @@ def preprocess_data(data):
     data = _remove_outliers(data)
     return data
 
-def show_and_get_baseline(folder, subject, placement):
+def show_and_get_baseline(folder, subject):
     global power_noise, power_noise_filtered, baseline
-    file = os.path.join(folder, subject + "_baseline_" + str(placement) + ".csv")
+    file = os.path.join(folder, f"{subject}_baseline.csv")
     df = pd.read_csv(file, header=None)
     sensor1 = np.array(df.iloc[:, :8]).flatten() #* (1/fs)
     sensor1 = sensor1 - np.mean(sensor1)
@@ -248,8 +248,8 @@ def show_and_get_baseline(folder, subject, placement):
     plt.subplots_adjust(hspace=0.5)
     return np.vstack([sensor1, sensor2, sensor3, sensor4])
 
-def show_all_gestures(gestures_files, folder, subject, placement):
-    baseline = show_and_get_baseline(folder, subject, placement) # show neutral gesture for reference
+def show_all_gestures(gestures_files, folder, subject):
+    baseline = show_and_get_baseline(folder, subject) # show neutral gesture for reference
     gestures_data = [[] for _ in range(len(gestures_files))]
 
     for i, file in enumerate(gestures_files):
@@ -292,16 +292,16 @@ def show_all_gestures(gestures_files, folder, subject, placement):
         sensor4 = preprocess_data(gestures_data[i][3])
 
         b1 = baseline[0]
-        b1 = np.append(b1, np.zeros(len(sensor1)-len(b1)))
+        b1 = np.append(b1, np.zeros(len(sensor1)-len(b1))) if len(sensor1) > len(b1) else b1[:len(sensor1)]
         sensor1 -= b1
         b2 = baseline[1]
-        b2 = np.append(b2, np.zeros(len(sensor2)-len(b2)))
+        b2 = np.append(b2, np.zeros(len(sensor2)-len(b2))) if len(sensor2) > len(b2) else b2[:len(sensor2)]
         sensor2 -= b2
         b3 = baseline[2]
-        b3 = np.append(b3, np.zeros(len(sensor3)-len(b3)))
+        b3 = np.append(b3, np.zeros(len(sensor3)-len(b3))) if len(sensor3) > len(b3) else b3[:len(sensor3)]
         sensor3 -= b3
         b4 = baseline[3]
-        b4 = np.append(b4, np.zeros(len(sensor4)-len(b4)))
+        b4 = np.append(b4, np.zeros(len(sensor4)-len(b4))) if len(sensor4) > len(b4) else b4[:len(sensor4)]
         sensor4 -= b4
 
         axs[4].set_title("Filtered sensor 1")
@@ -417,22 +417,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize data from uMyo")
     
     parser.add_argument(
-        "--folder", type=str, default="../recordings/01_12_24_initial_placement_test/data", help="Folder with recordings"
+        "--folder", type=str, default="../recordings/session-24_02_25", help="Folder with recordings"
     )
     parser.add_argument(
         "--subject", type=str, default="nad", help="Test subject name"
     )
-    parser.add_argument(
-        "--placement", type=int, default=0, help="Placement version of the sensors"
-    )
 
     args = parser.parse_args()
 
-    folder = args.folder
+    raw_folder = os.path.join(args.folder, args.subject, 'raw')
     subject = args.subject
-    placement = args.placement
     gestures_files = [
-        os.path.join(folder, file) for file in os.listdir(folder) if file.endswith(str(placement)+".csv") and file.startswith(subject)
+        os.path.join(raw_folder, file) for file in os.listdir(raw_folder) if file.endswith(".csv") and file.startswith(subject)
     ]
 
-    show_all_gestures(gestures_files, folder, subject, placement)
+    show_all_gestures(gestures_files, raw_folder, subject)

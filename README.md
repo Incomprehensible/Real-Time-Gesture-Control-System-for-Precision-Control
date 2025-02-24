@@ -42,13 +42,17 @@ Data collection can be done using the [`record_data.py` script](uMyo_python_tool
 
 Usage:
 ```bash
-usage: record_data.py [-h] [--output OUTPUT] [--num_sensors NUM_SENSORS] [-p PORT]
+usage: record_data.py [-h] [--output_folder OUTPUT_FOLDER] [--subject SUBJECT] [--gesture GESTURE] [--num_sensors NUM_SENSORS]
+                      [-p PORT]
 
 Record data from uMyo
 
 options:
   -h, --help            show this help message and exit
-  --output OUTPUT       Output file to save sensor data
+  --output_folder OUTPUT_FOLDER
+                        Output file to save sensor data
+  --subject SUBJECT     Name of the subject
+  --gesture GESTURE     Name of the gesture
   --num_sensors NUM_SENSORS
                         Number of sensors to record
   -p PORT, --port PORT  USB receiving station port
@@ -56,7 +60,7 @@ options:
 
 Example
 ```bash
-python uMyo_python_tools/record_data.py --num_sensors 5 --output recordings/23_02_25/data/person_open.csv -p /dev/ttyUSB0
+python uMyo_python_tools/record_data.py --num_sensors 5 --output_folder recordings/session-24_02_25  --subject person --gesture fist
 ```
 
 ## Training

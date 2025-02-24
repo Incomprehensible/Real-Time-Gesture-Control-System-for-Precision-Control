@@ -18,48 +18,34 @@ NUM_FFT_READINGS = 4
 USE_FFT = True
 
 
-def check_sensors_present(file, num_sensors=NUM_SENSORS):
+def _check_sensors_present(file, num_sensors=NUM_SENSORS):
     df = pd.read_csv(file)
     return len(df.columns) >= num_sensors * NUM_READINGS
 
 
-def load_data(data_dir, test_subjects, gestures, window_size, sensor_placement=0):
+def load_data(data_dir, test_subjects, gestures, window_size):
     recordings = []
 
-    pattern = re.compile(
-        rf"({'|'.join(test_subjects)})_({'|'.join(gestures)})\d*_{sensor_placement}.csv"
-    )
-
+    pattern = re.compile(rf"({'|'.join(test_subjects)})_({'|'.join(gestures)}).csv")
+    
     for date_dir, _, filenames in os.walk(data_dir):
-        if date_dir.endswith("data") and not "static" in date_dir:
+        if "raw" in date_dir:
             for filename in filenames:
                 if pattern.match(filename):
-                    gesture = next(
-                        (gesture for gesture in gestures if gesture in filename), None
-                    )
+                    gesture = next((gesture for gesture in gestures if gesture in filename), None)
 
                     emg_data_file = os.path.join(date_dir, filename)
-                    if check_sensors_present(emg_data_file):
-                        recordings.append(
-                            {
-                                "gesture": gesture,
-                                "raw_data_filepath": emg_data_file,
-                                "imu_data_filepath": (
-                                    os.path.join(date_dir, f"imu_{filename}")
-                                    if os.path.exists(
-                                        os.path.join(date_dir, f"imu_{filename}")
-                                    )
-                                    else None
-                                ),
-                                "fft_data_filepath": (
-                                    os.path.join(date_dir, f"fft_{filename}")
-                                    if os.path.exists(
-                                        os.path.join(date_dir, f"fft_{filename}")
-                                    )
-                                    else None
-                                ),
-                            }
-                        )
+                    fft_data_file = os.path.join(date_dir.replace('raw', 'fft'), f'fft_{filename}')
+                    imu_data_file = os.path.join(date_dir.replace('raw', 'imu'), f'imu_{filename}')
+                    if _check_sensors_present(emg_data_file):
+                        recordings.append({
+                            "gesture": gesture,
+                            "raw_data_filepath": emg_data_file,
+                            "imu_data_filepath": imu_data_file if os.path.exists(imu_data_file) else None,
+                            'fft_data_filepath': fft_data_file if os.path.exists(fft_data_file) else None,
+                        })
+                    else:
+                        print(f"File {emg_data_file} has the wrong number of sensors. Should be {NUM_SENSORS}. Skipping.")
 
     dfs = [[] for _ in range(len(gestures))]
     fft_dfs = [[] for _ in range(len(gestures))]

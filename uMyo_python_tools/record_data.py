@@ -4,7 +4,6 @@ from time import sleep
 
 import serial
 import umyo_parser
-
 from parameters import IDS
 
 MAX_DATA_LAG = 400
@@ -12,15 +11,25 @@ MAX_DATA_LAG = 400
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Record data from uMyo")
     parser.add_argument(
-        "--output",
+        "--output_folder",
         type=str,
-        default="sensor_data.csv",
+        default="../recordings",
         help="Output file to save sensor data",
+    )
+    parser.add_argument(
+        "--subject",
+        type=str,
+        help="Name of the subject",
+    )
+    parser.add_argument(
+        "--gesture",
+        type=str,
+        help="Name of the gesture",
     )
     parser.add_argument(
         "--num_sensors",
         type=int,
-        default=4,
+        default=5,
         help="Number of sensors to record",
     )
     parser.add_argument("-p", "--port", type=str, default="COM7", help="USB receiving station port")
@@ -35,9 +44,10 @@ if __name__ == "__main__":
     timeout=0,
     )
 
-    output_path = pathlib.Path(args.output)
-    if output_path.parent.exists() is False:
-        output_path.parent.mkdir(parents=True)
+    output_folder = pathlib.Path(args.output_folder)
+    (output_folder / args.subject / 'raw').mkdir(parents=True, exist_ok=True)
+    (output_folder / args.subject / 'fft').mkdir(parents=True, exist_ok=True)
+    (output_folder / args.subject / 'imu').mkdir(parents=True, exist_ok=True)
 
     recordings = 0
     last_data_ids = [0] * args.num_sensors
@@ -93,11 +103,11 @@ if __name__ == "__main__":
                 flattened_fft = [item for sublist in spectrum_data for item in sublist]
                 flattened_imu = [item for sublist in imu_data for item in sublist]
 
-                with open(output_path, "a") as f:
+                with open(output_folder / args.subject / "raw" / f"{args.subject}_{args.gesture}.csv", "a") as f:
                     f.write(",".join(map(str, flattened_data)) + "\n")
-                with open(output_path.parent / ("fft_" + output_path.name), "a") as f:
+                with open(output_folder / args.subject / "fft" / f"fft_{args.subject}_{args.gesture}.csv", "a") as f:
                     f.write(",".join(map(str, flattened_fft)) + "\n")
-                with open(output_path.parent / ("imu_" + output_path.name), "a") as f:
+                with open(output_folder / args.subject / "imu" / f"imu_{args.subject}_{args.gesture}.csv", "a") as f:
                     f.write(",".join(map(str, flattened_imu)) + "\n")
                 recordings += 1
                 print("Recordings done: ", recordings)
