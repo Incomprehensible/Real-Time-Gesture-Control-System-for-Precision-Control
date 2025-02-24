@@ -6,3 +6,4 @@ pyserial
 scikit_learn
 scipy
 torch
+datasets
